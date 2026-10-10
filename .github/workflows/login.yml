@@ -30,13 +30,13 @@ jobs:
         id: state
         run: |
           mkdir -p /tmp/login
-          gh api "repos/${{ github.repository }}/actions/artifacts?name=login-state&per_page=1" \
-            --jq '.artifacts[0].id' > /tmp/artifact_id || true
-          if [ -s /tmp/artifact_id ] && [ "$(cat /tmp/artifact_id)" != "null" ]; then
-            gh api "repos/${{ github.repository }}/actions/artifacts/$(cat /tmp/artifact_id)/zip" > /tmp/login/state.zip
-            cd /tmp/login && unzip -o -q state.zip state.json && echo "state=found" >> "$GITHUB_OUTPUT"
+          ARTIFACT=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=login-state&per_page=1" --jq '.artifacts[0].id' 2>/dev/null || true)
+          echo "artifact=$ARTIFACT"
+          if [ -n "$ARTIFACT" ] && [ "$ARTIFACT" != "null" ]; then
+            gh api "repos/${{ github.repository }}/actions/artifacts/$ARTIFACT/zip" > /tmp/login/state.zip \
+              && (cd /tmp/login && unzip -o -q state.zip state.json) && echo "state=found"
           else
-            echo "state=none" >> "$GITHUB_OUTPUT"
+            echo "state=none"
           fi
         env:
           GH_TOKEN: ${{ github.token }}
