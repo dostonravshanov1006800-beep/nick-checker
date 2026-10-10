@@ -42,6 +42,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - name: Step 1 - send code (or Step 2 - verify)
+        env:
+          PHONE: ${{ inputs.phone }}
+          CODE: ${{ inputs.code }}
         run: |
           python - <<'PY'
           import asyncio, json, os, sys
@@ -49,8 +52,9 @@ jobs:
           from telethon.sessions import StringSession
 
           api_id, api_hash = int(os.environ["API_ID"]), os.environ["API_HASH"]
-          phone = "${{ inputs.phone }}"
-          code = """${{ inputs.code }}""".strip()
+          phone = os.environ["PHONE"]
+          code = os.environ.get("CODE", "").strip()
+          print(f"mode: {'verify' if code else 'send_code'}")
           state_file = "/tmp/login/state.json"
 
           async def main():
