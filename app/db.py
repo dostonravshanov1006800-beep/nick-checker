@@ -156,3 +156,12 @@ def hunt_bump_batch(user_id: int, batch: int):
     with _lock:
         conn().execute("UPDATE hunt SET batch=? WHERE user_id=? AND enabled=1", (batch, user_id))
         conn().commit()
+
+
+def checked_names(user_id: int, days: int = 7) -> set[str]:
+    """Имена, проверенные юзером за последние days дней (для исключения в охоте)."""
+    with _lock:
+        rows = conn().execute(
+            "SELECT username FROM checks WHERE user_id=? AND checked_at>?",
+            (user_id, int(time.time()) - days * 86400)).fetchall()
+    return {r["username"] for r in rows}

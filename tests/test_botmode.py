@@ -290,9 +290,19 @@ def test_hunt_letters_only_saves_and_lists():
 
 
 def test_hunt_generator_no_digits_no_underscores():
+    """Охота: только буквы (+ чуть «_»), без цифр, по возрастанию длины."""
     from app import generators
     vs = list(generators.hunt_candidates(300))
-    assert len(vs) == 300
-    assert all(u.isalpha() for u in vs), "только буквы!"
-    assert all(5 <= len(u) <= 7 for u in vs)
-    assert len(set(vs)) == 300
+    assert len(vs) == len(set(vs)) == 300
+    assert all(not any(c.isdigit() for c in u) for u in vs), "только буквы!"
+    ls = [len(u) for u in vs]
+    assert all(ls[i] <= ls[i + 1] for i in range(len(ls) - 1)), "по возрастанию!"
+    assert 5 <= min(ls) and vs[0] == "amber"                  # с самых коротких
+    big = list(generators.hunt_candidates(4000))
+    assert any("_" in u for u in big), "варианты с «_» должны быть"
+    assert all(all(c.isalpha() or c == "_" for c in u) for u in big)
+    # исключение проверенных двигает охоту к длинным именам
+    ex = set(vs)
+    vs2 = list(generators.hunt_candidates(300, exclude=ex))
+    assert not (set(vs2) & ex), "не должен повторять проверенное"
+    assert len(vs2) == 300

@@ -195,31 +195,64 @@ def _nice_syllable(rng, n_syl: int) -> str:
     return w
 
 
-def hunt_candidates(limit: int = 500):
-    """Кандидаты для охоты: ТОЛЬКО a-z, длина 5-7, красивые и произносимые.
+def _syll_pool(L: int, size: int = 400) -> list[str]:
+    """ДЕТЕРМИНИРОВАННЫЙ пул произносимых слов длины L (seed = длина).
 
-    Половина - слова из кураторского словаря, половина - генератор слогов.
-    Никаких цифр, подчёркиваний и «комбинаций».
+    Один и тот же пул на каждый вызов - исключение уже проверенных имён
+    гарантирует, что охота движется от коротких длин к длинным.
     """
     import random
-    rng = random.Random()
-    words = HUNT_WORDS[:]
-    rng.shuffle(words)
+    rng = random.Random(9173 + L * 31)
+    cons = "bdfghjklmnprstvz"
+    vowels = "aeiou"
     out: list[str] = []
     seen: set[str] = set()
-    for w in words:                      # сначала словарь
-        if len(w) in (5, 6, 7) and w not in seen:
-            seen.add(w); out.append(w)
-    while len(out) < max(limit * 2, 1000):  # затем слоги
-        syl = rng.choice((2, 2, 3))
-        w = _nice_syllable(rng, syl)
-        if 5 <= len(w) <= 7 and w not in seen:
-            seen.add(w); out.append(w)
+    while len(out) < size:
+        w = ""
+        while len(w) < L - 1:
+            w += rng.choice(cons) + rng.choice(vowels)
+        if len(w) < L:
+            w += rng.choice(cons)
+        w = w[:L]
+        if w not in seen:
+            seen.add(w)
+            out.append(w)
+    return out
+
+
+HUNT_PREFIX = ["the", "its", "my", "im", "mr", "real", "go", "be", "is", "we"]
+
+
+def hunt_candidates(limit: int = 500, exclude=None):
+    """Кандидаты для охоты: ТОЛЬКО буквы (плюс немного «_»), без цифр.
+
+    Порядок - по возрастанию длины: все 5-буквенные, затем 6, 7, ...
+    Внутри длины: словарные слова, затем генератор, затем «_»-варианты.
+    exclude - уже проверенные имена (пропускаются), чтобы охота
+    реально продвигалась от коротких к длинным, а не топталась на месте.
+    """
+    excl = set(exclude or ())
+    seen: set[str] = set(excl)
     n = 0
-    for w in out:
-        ok, _ = rules.validate(w)
-        if ok:
+    for L in range(5, 13):                      # от самых коротких к длинным
+        pool = [w for w in HUNT_WORDS if len(w) == L] + _syll_pool(L)
+        for w in pool:                          # чистые буквы
+            if w in seen:
+                continue
+            seen.add(w)
             yield w
             n += 1
-            if n >= max(1, limit):
+            if n >= limit:
                 return
+        for p in HUNT_PREFIX:                    # чуть-чуть с подчёркиванием
+            rest = L - len(p) - 1
+            if rest < 2:
+                continue
+            words = [w for w in HUNT_WORDS if len(w) == rest] + _syll_pool(rest, 60)
+            w = next((x for x in words if f"{p}_{x}" not in seen), None)
+            if w:
+                seen.add(f"{p}_{w}")
+                yield f"{p}_{w}"
+                n += 1
+                if n >= limit:
+                    return
