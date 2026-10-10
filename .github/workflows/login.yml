@@ -8,6 +8,9 @@ on:
       code:
         description: "Код из Telegram (для шага 2; шаг 1 — оставить пустым)"
         required: false
+      password:
+        description: "Облачный пароль 2FA (если включён)"
+        required: false
 
 permissions:
   contents: read
@@ -45,6 +48,7 @@ jobs:
         env:
           PHONE: ${{ inputs.phone }}
           CODE: ${{ inputs.code }}
+          PASSWORD: ${{ inputs.password }}
         run: |
           python - <<'PY'
           import asyncio, json, os, sys
@@ -76,8 +80,14 @@ jobs:
                   assert state, "нет состояния шага 1"
                   client = TelegramClient(StringSession(state["session"]), api_id, api_hash)
                   await client.connect()
-                  await client.sign_in(phone=phone, code=code,
-                                      phone_code_hash=state["phone_code_hash"])
+                  from telethon.errors import SessionPasswordNeededError
+                  try:
+                      await client.sign_in(phone=phone, code=code,
+                                          phone_code_hash=state["phone_code_hash"])
+                  except SessionPasswordNeededError:
+                      pw = os.environ.get("PASSWORD", "").strip()
+                      assert pw, "NEED_2FA_PASSWORD"
+                      await client.sign_in(password=pw)
                   me = await client.get_me()
                   open("/tmp/session.txt", "w").write(StringSession.save(client.session))
                   print(f"LOGIN_OK: {getattr(me, 'first_name', '')} (@{getattr(me, 'username', '-')})")
