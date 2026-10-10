@@ -3,8 +3,15 @@ on:
   workflow_dispatch:
     inputs:
       username:
-        description: "Ник для разовой проверки"
-        required: true
+        description: "Ник для разовой проверки (mode=single)"
+        required: false
+      base:
+        description: "Основа для авто-поиска (mode=auto)"
+        required: false
+      mode:
+        description: "single | auto"
+        required: false
+        default: single
 
 permissions:
   contents: read
@@ -22,9 +29,11 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -q telethon
-      - name: Check username
+      - name: Check username / Auto-search
         env:
           USERNAME: ${{ inputs.username }}
+          BASE: ${{ inputs.base }}
+          MODE: ${{ inputs.mode }}
         run: |
           python - <<'PY'
           import asyncio, os, sys
@@ -38,10 +47,24 @@ jobs:
                                       int(os.environ["API_ID"]), os.environ["API_HASH"])
               await client.connect()
               eng = Engine(client)
-              res = await eng.check(os.environ["USERNAME"])
-              print(f"CHECK_RESULT: {res['username']} -> {res['status']} ({STATUS_LABEL[res['status']]})"
-                    + (f" owner={res['owner']}" if res.get("owner") else "")
-                    + (f" error={res['error']}" if res.get("error") else ""))
+              if os.environ.get("MODE") == "auto":
+                  from app import generators, queue, db
+                  base = os.environ["BASE"]
+                  items = list(generators.auto_variants(base, 40))
+                  cq = queue.CheckQueue(eng)
+                  await cq.start()
+                  job = await cq.submit(0, items, "auto", 1.0, len(items),
+                                        stop_on_free=True, auto_save=True)
+                  while job.status in ("queued", "running", "paused", "flood"):
+                      await asyncio.sleep(1)
+                  found = job.free_recent[-1] if job.free_recent else None
+                  print(f"AUTO_RESULT: base={base} checked={job.done} found={found} "
+                        f"saved={'yes' if db.favorites(0) else 'no'}")
+              else:
+                  res = await eng.check(os.environ["USERNAME"])
+                  print(f"CHECK_RESULT: {res['username']} -> {res['status']} ({STATUS_LABEL[res['status']]})"
+                        + (f" owner={res['owner']}" if res.get("owner") else "")
+                        + (f" error={res['error']}" if res.get("error") else ""))
               await client.disconnect()
 
           asyncio.run(main())
