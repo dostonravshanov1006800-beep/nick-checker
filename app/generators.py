@@ -163,3 +163,63 @@ def auto_variants(base: str, limit: int = 40):
             n += 1
             if n >= max(1, limit):
                 return
+
+
+# ---------- фоновая охота: только буквы, короткие и красивые ----------
+HUNT_WORDS = """
+amber angel autumn azure basil berry blaze bloom breeze bryte cedar charm cherry chess
+clever cobalt cocoa comet coral cosmic cradle crystal cypress dahlia dandy dawn deluxe delta
+denim dharma dolly dolphin domino donut dorian dove dragon dream drift eagle ember emerald
+espresso eternal feather fern fable falcon fancy fawn fennel fiesta fjord flame flint florist
+frost galaxy garnet ginger glacier glow golder grace granite grape grove harbor hazel helium
+henna hermit hero holly honey horizon indigo ivory jade jasmine jetty jolly joy jungle juniper
+karma kiwi koala lagoon lake lark laurel lavender leaf legend lemon lilac lily lotus lunar lynx
+magenta mango maple marina marble meadow melon mesa mint mira mist mocha moss mulberry nebula
+nectar night noble nomad north nova oak ocean olive onyx opal orbit orchid otter paddle palm
+panda papaya pastel peace peach pearl petal phoenix pine planet plum polar poppy prairie prism
+puzzle quill quince radar rainbow raven rebel ripple river rosy ruby saffron sage sailor salmon
+satin savanna scarlet sequoia serene shore sierra silk silver sky slate smoke solar solstice
+sonnet sparkle spear spice spruce stellar summit sunset tangerine teal thyme tiger timber topaz
+tulip tundra urchin valiant vanilla velvet verbena vibrant vista walnut wander warbler willow
+wisdom wonder yarrow zenith zephyr zircon
+""".split()
+
+
+def _nice_syllable(rng, n_syl: int) -> str:
+    """Произносимое слово из слогов CV/CVC: только буквы, выглядит естественно."""
+    cons = "bdfghjklmnprstvz"
+    vowels = "aeiou"
+    w = "".join(rng.choice(cons) + rng.choice(vowels) for _ in range(n_syl))
+    if rng.random() < 0.5:
+        w += rng.choice(cons)
+    return w
+
+
+def hunt_candidates(limit: int = 500):
+    """Кандидаты для охоты: ТОЛЬКО a-z, длина 5-7, красивые и произносимые.
+
+    Половина - слова из кураторского словаря, половина - генератор слогов.
+    Никаких цифр, подчёркиваний и «комбинаций».
+    """
+    import random
+    rng = random.Random()
+    words = HUNT_WORDS[:]
+    rng.shuffle(words)
+    out: list[str] = []
+    seen: set[str] = set()
+    for w in words:                      # сначала словарь
+        if len(w) in (5, 6, 7) and w not in seen:
+            seen.add(w); out.append(w)
+    while len(out) < max(limit * 2, 1000):  # затем слоги
+        syl = rng.choice((2, 2, 3))
+        w = _nice_syllable(rng, syl)
+        if 5 <= len(w) <= 7 and w not in seen:
+            seen.add(w); out.append(w)
+    n = 0
+    for w in out:
+        ok, _ = rules.validate(w)
+        if ok:
+            yield w
+            n += 1
+            if n >= max(1, limit):
+                return

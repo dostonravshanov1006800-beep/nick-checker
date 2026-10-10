@@ -31,6 +31,12 @@ def conn() -> sqlite3.Connection:
                 owner_type TEXT, owner_name TEXT,
                 error TEXT,
                 checked_at INTEGER NOT NULL)""")
+            _conn.execute("""CREATE TABLE IF NOT EXISTS hunt(
+                user_id INTEGER PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                batch INTEGER NOT NULL DEFAULT 0,
+                found INTEGER NOT NULL DEFAULT 0,
+                started_at INTEGER NOT NULL DEFAULT 0)""")
             _conn.execute("""CREATE TABLE IF NOT EXISTS favorites(
                 user_id INTEGER NOT NULL DEFAULT 0,
                 username TEXT NOT NULL,
@@ -115,3 +121,38 @@ def favorites(user_id: int) -> list[dict]:
     with _lock:
         rows = conn().execute("SELECT * FROM favorites WHERE user_id=? ORDER BY added_at DESC", (user_id,)).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------- фоновая охота ----------
+def hunt_all() -> list[dict]:
+    with _lock:
+        rows = conn().execute("SELECT * FROM hunt WHERE enabled=1").fetchall()
+    return [dict(r) for r in rows]
+
+
+def hunt_get(user_id: int) -> dict | None:
+    with _lock:
+        row = conn().execute("SELECT * FROM hunt WHERE user_id=?", (user_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def hunt_set(user_id: int, enabled: bool, batch: int = 0, found: int = 0):
+    with _lock:
+        conn().execute(
+            "INSERT INTO hunt(user_id, enabled, batch, found, started_at) VALUES(?,?,?,?,?) "
+            "ON CONFLICT(user_id) DO UPDATE SET enabled=?, batch=?, found=?",
+            (user_id, int(enabled), batch, found, int(time.time()), int(enabled), batch, found))
+        conn().commit()
+
+
+def hunt_add_found(user_id: int, n: int = 1):
+    with _lock:
+        conn().execute("UPDATE hunt SET found=found+? WHERE user_id=?", (n, user_id))
+        conn().commit()
+
+
+def hunt_bump_batch(user_id: int, batch: int):
+    """Обновить номер партии ТОЛЬКО если охота всё ещё включена (антигонка со stop)."""
+    with _lock:
+        conn().execute("UPDATE hunt SET batch=? WHERE user_id=? AND enabled=1", (batch, user_id))
+        conn().commit()

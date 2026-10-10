@@ -30,6 +30,7 @@
       <button data-m="gen">Генератор</button>
       <button data-m="auto">Авто</button>
       <button data-m="dict">Словарь</button>
+      <button data-m="hunt">🆓 Охота</button>
     </div>
 
     <div class="card" id="form-one">
@@ -137,6 +138,13 @@ telegram
       </div>
       <div class="hint">Слова короче 5 символов и с недопустимыми знаками пропускаются автоматически.</div>
       <button class="btn" id="btn-dict">Запустить словарь</button>
+    </div>
+
+    <div class="card" id="form-hunt" hidden>
+      <label>Фоновая охота на ники</label>
+      <div class="hint">Жмёшь кнопку — и уходишь. Бот сам ищет красивые ники: <b>только буквы</b>, длина 5-7, без цифр и комбинаций. Все свободные сохраняются в ⭐ автоматически, списки приходят в чат, охота не останавливается после находок. Закрой чат — поиск продолжается.</div>
+      <button class="btn" id="btn-hunt">🆓 Запустить охоту</button>
+      <button class="btn ghost" id="btn-hunt-off" style="margin-top:10px">⏹ Остановить охоту</button>
     </div>
 
     <!-- Активное задание -->

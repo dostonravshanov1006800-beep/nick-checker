@@ -236,3 +236,63 @@ def test_auto_variants_letters_only():
     assert "d0570n" not in list(generators.auto_variants("doston", 5000))
     vs = list(generators.auto_variants("doston", 40))
     assert vs[0] == "doston" and len(vs) == 40
+
+
+class AllFreeClient:
+    """Движок, где свободно всё, что длиннее 4 символов."""
+    async def __call__(self, req):
+        name = getattr(req, "username", "")
+        from telethon.tl.functions.contacts import ResolveUsernameRequest
+        if isinstance(req, ResolveUsernameRequest):
+            raise __import__("telethon").errors.UsernameNotOccupiedError(request=None)
+        return len(name) > 4
+
+
+def test_hunt_letters_only_saves_and_lists():
+    """Охота: все найденные сохраняются, список приходит, охота идёт дальше."""
+    import app.botmode as bm
+    old_engine, old_cq = bm.engine, bm.cq
+    bm.engine = checker.Engine(AllFreeClient()); bm.cq = queue.CheckQueue(bm.engine)
+    bm.HUNT_BATCH, bm.HUNT_DELAY = 5, 0.05
+    from app import db as _db
+    UID = 424200
+    class HuntMsg(FakeMsg):
+        class from_user:
+            id = UID
+        class chat:
+            id = UID
+    _db.hunt_set(UID, False, 0)
+    m = HuntMsg("/hunt")
+    async def go():
+        await bm.cq.start()
+        await bm.hunt_start(m)
+        for _ in range(80):
+            await asyncio.sleep(0.2)
+            if any("Свободные ники" in r for r in m.replies):
+                break
+    asyncio.run(go())
+    assert any("Охота запущена" in r for r in m.replies)
+    assert any("Свободные ники" in r for r in m.replies), "список находок не прислан"
+    favs = [f["username"] for f in _db.favorites(UID)]
+    assert len(favs) >= 5 and all(u.isalpha() and 5 <= len(u) <= 7 for u in favs), favs
+    assert _db.hunt_get(UID)["enabled"] == 1
+    # остановка
+    m2 = HuntMsg("/hunt off")
+    asyncio.run(bm.hunt_stop(m2))
+    import time as _t
+    for _ in range(30):                     # watcher замечает стоп до 10 сек
+        if _db.hunt_get(UID)["enabled"] == 0:
+            break
+        _t.sleep(0.5)
+    assert _db.hunt_get(UID)["enabled"] == 0
+    bm.HUNT_BATCH, bm.HUNT_DELAY = 400, 1.2
+    bm.engine, bm.cq = old_engine, old_cq
+
+
+def test_hunt_generator_no_digits_no_underscores():
+    from app import generators
+    vs = list(generators.hunt_candidates(300))
+    assert len(vs) == 300
+    assert all(u.isalpha() for u in vs), "только буквы!"
+    assert all(5 <= len(u) <= 7 for u in vs)
+    assert len(set(vs)) == 300

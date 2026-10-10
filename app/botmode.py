@@ -219,6 +219,104 @@ async def cmd_auto(msg: Message):
     await run_auto(msg, base, limit=limit, delay=1.5, stop_first="first" in (msg.text or "").lower())
 
 
+HUNT_BATCH = 400          # вариантов за партию
+HUNT_DELAY = 1.2          # пауза между проверками
+_hunt_report: dict[int, dict] = {}   # uid -> {found, ts, reported}
+
+
+@dp.message(Command("hunt"))
+async def cmd_hunt(msg: Message):
+    arg = (msg.text or "").lower().replace("/hunt", "").strip()
+    if arg in ("off", "стоп", "stop", "выкл"):
+        await hunt_stop(msg)
+    else:
+        await hunt_start(msg)
+
+
+async def hunt_start(msg: Message):
+    if not engine_ok():
+        await unavailable(msg)
+        return
+    if (cq.job and cq.job.user_id == msg.from_user.id
+            and cq.job.label.startswith("охота") and cq.job.status in ("queued", "running", "paused", "flood")):
+        await msg.answer("🆓 Охота уже идёт. Остановить: <code>/hunt off</code>")
+        return
+    st = db.hunt_get(msg.from_user.id)
+    batch = (st["batch"] if st else 0)
+    db.hunt_set(msg.from_user.id, True, batch)
+    items = list(generators.hunt_candidates(HUNT_BATCH))
+    total_all = HUNT_BATCH * (batch + 1)
+    eta = int(HUNT_BATCH * HUNT_DELAY / 60)
+    await msg.answer(
+        f"🆓 <b>Охота запущена</b>\n"
+        f"Ищу красивые ники: только буквы, длина 5-7, без цифр.\n"
+        f"Партия {batch + 1}: ~{HUNT_BATCH} вариантов, примерно {eta} мин.\n"
+        f"Проверено всего будет ~{total_all}, свободные сохраняются в ⭐ автоматически.\n\n"
+        f"Можешь закрыть чат - охота идёт сама. Списки находок буду присылать сюда.\n"
+        f"Остановить: <code>/hunt off</code>")
+    await _hunt_run(msg, items, batch + 1)
+
+
+async def _hunt_run(msg: Message, items, batch: int):
+    cur = db.hunt_get(msg.from_user.id)
+    if not (cur and cur["enabled"] and cur["batch"] + 1 == batch):
+        return  # охота выключена или уже другая сессия - не запускаем
+    await report_job(msg, f"охота · партия {batch}")
+    job = await cq.submit(msg.from_user.id, items, f"охота · партия {batch}",
+                         HUNT_DELAY, len(items), auto_save=True)
+    _hunt_report.setdefault(msg.from_user.id, {"found": 0, "ts": time.time(), "reported": 0})
+    asyncio.create_task(progress_updater(msg.chat.id))
+    asyncio.create_task(hunt_watcher(msg, job, batch))
+
+
+async def hunt_watcher(msg: Message, job, batch: int):
+    """Пока партия идёт: раз в 15 мин или каждые 10 находок шлёт список; после конца - следующая партия."""
+    uid = msg.from_user.id
+    st = _hunt_report.setdefault(uid, {"found": 0, "ts": time.time(), "reported": 0})
+    while job.status in ("queued", "running", "paused", "flood"):
+        await asyncio.sleep(10)
+        new = job.counts["free"] - st["reported"]
+        if (new >= 10) or (new > 0 and time.time() - st["ts"] > 900):
+            st["reported"] = job.counts["free"]
+            st["ts"] = time.time()
+            await _hunt_send_list(msg, job)
+    if job.status == "stopped":
+        db.hunt_set(uid, False, batch)
+        await msg.answer("⏹ Охота остановлена.")
+        return
+    # партия кончилась - сразу следующая, пока включена
+    cur = db.hunt_get(uid)
+    if cur and cur["enabled"]:
+        db.hunt_bump_batch(uid, batch)      # атомарно: только если охота всё ещё включена
+        if job.free_recent:
+            db.hunt_add_found(uid, len(job.free_recent))
+        items = list(generators.hunt_candidates(HUNT_BATCH))
+        await _hunt_send_list(msg, job)
+        await _hunt_run(msg, items, batch + 1)
+    else:
+        await msg.answer(f"🏁 Охота выключена. Проверено партий: {batch}.")
+
+
+async def _hunt_send_list(msg: Message, job):
+    free = list(dict.fromkeys(job.free_recent))
+    if not free:
+        return
+    lst = "\n".join(f"🟢 @{u}" for u in free[:30])
+    total = sum(job.counts.values())
+    await msg.answer(
+        f"🆓 <b>Свободные ники ({len(free)})</b>\n{lst}\n\n"
+        f"Проверено: {total} · найдено свободных: {job.counts['free']} · "
+        f"все в ⭐ избранном")
+
+
+async def hunt_stop(msg: Message):
+    st = db.hunt_get(msg.from_user.id)
+    off = cq.control("stop")
+    if st and st["enabled"]:
+        db.hunt_set(msg.from_user.id, False, st["batch"])
+    await msg.answer("⏹ Останавливаю охоту" + ("" if off else ": активной партии нет, режим выключен."))
+
+
 @dp.message(Command("stop"))
 async def cmd_stop(msg: Message):
     ok = cq.control("stop")
@@ -472,4 +570,18 @@ async def run():
         except Exception:
             pass
         asyncio.create_task(sync_loop())
+        for st in db.hunt_all():
+            try:
+                uid = st["user_id"]
+                class _M:
+                    class chat:
+                        id = uid
+                    class from_user:
+                        id = uid
+                    async def answer(self, text, **kw):
+                        return await bot.send_message(uid, text, **kw)
+                await bot.send_message(uid, f"🆓 Охота продолжается после перезапуска (партия {st['batch'] + 1}).")
+                await _hunt_run(_M(), list(generators.hunt_candidates(HUNT_BATCH)), st["batch"] + 1)
+            except Exception:
+                log.exception("hunt resume failed for %s", st["user_id"])
         await dp.start_polling(bot)
