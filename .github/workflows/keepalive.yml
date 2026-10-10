@@ -1,0 +1,80 @@
+name: keepalive
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      APP_URL: ${{ secrets.APP_URL }}
+      API_ID: ${{ secrets.API_ID }}
+      API_HASH: ${{ secrets.API_HASH }}
+      SESSION: ${{ secrets.SESSION }}
+      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      CHECK_DELAY: "1.5"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: pip install -q -r requirements.txt
+
+      - name: Restore DB from data branch
+        run: |
+          mkdir -p data
+          python - <<'PY'
+          import sys; sys.path.insert(0, ".")
+          from app import sync, db
+          if sync.restore(db.DB_PATH):
+              print("DB restored from data branch")
+          else:
+              print("no data-branch DB, starting fresh")
+          PY
+
+      - name: Run bot (5h25m)
+        run: |
+          python - <<'PY'
+          import asyncio, sys
+          sys.path.insert(0, ".")
+          from app.botmode import run
+          asyncio.run(run())
+          PY
+        timeout-minutes: 325
+
+      - name: Final backup
+        if: always()
+        run: |
+          python - <<'PY'
+          import sys; sys.path.insert(0, ".")
+          from app import sync, db
+          import shutil, os
+          db.checkpoint()
+          shutil.copy(db.DB_PATH, "/tmp/checks.db")
+          with open("/tmp/checks.db", "rb") as f:
+              sync.push_payload({"db/checks.db": f.read()})
+          print("final backup done")
+          PY
+
+      - name: Dispatch next run
+        if: always()
+        run: gh api -X POST repos/${{ github.repository }}/actions/workflows/keepalive.yml/dispatches -f ref=main || true
+        env:
+          GH_TOKEN: ${{ github.token }}

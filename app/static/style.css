@@ -1,0 +1,167 @@
+/* Nick Checker — iOS-дизайн: светлая/тёмная тема по системной, 360px+ */
+:root {
+  --bg: #f2f2f7; --card: #ffffff; --text: #0b0b0f; --sub: #8e8e93;
+  --line: rgba(60, 60, 67, .13); --primary: #007aff; --on-primary: #fff;
+  --free: #34c759; --taken: #ff3b30; --unavail: #ff9500; --err: #8e8e93;
+  --chip: rgba(118, 118, 128, .12);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #000; --card: #1c1c1e; --text: #fff; --sub: #9e9ea4; --line: rgba(84, 84, 88, .6); --chip: rgba(120, 120, 128, .32); }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  background: var(--bg); color: var(--text);
+  padding-bottom: 84px; min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+main { max-width: 480px; margin: 0 auto; padding: 0 16px 24px; }
+
+/* Баннер */
+.hero {
+  margin: 12px 0 16px; padding: 26px 22px; border-radius: 22px;
+  background: linear-gradient(135deg, #0a84ff 0%, #5e5ce6 55%, #bf5af2 100%);
+  color: #fff; position: relative; overflow: hidden;
+  box-shadow: 0 14px 34px rgba(94, 92, 230, .35);
+}
+.hero::after {
+  content: ""; position: absolute; right: -60px; top: -60px; width: 190px; height: 190px;
+  background: rgba(255, 255, 255, .14); border-radius: 50%;
+}
+.hero h1 { margin: 0; font-size: 30px; line-height: 1.1; font-weight: 800; letter-spacing: -.5px; }
+.hero p { margin: 8px 0 0; font-size: 14px; opacity: .92; font-weight: 500; }
+.hero .badges { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+.hero .badge {
+  font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 99px;
+  background: rgba(255, 255, 255, .22); backdrop-filter: blur(6px);
+}
+
+/* Таб-бар */
+.tabbar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
+  display: flex; justify-content: space-around;
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  backdrop-filter: blur(18px);
+  border-top: .5px solid var(--line);
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+}
+.tabbar button {
+  flex: 1; border: 0; background: none; color: var(--sub);
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  font-size: 10.5px; font-weight: 600; padding: 4px 0; cursor: pointer;
+}
+.tabbar button.active { color: var(--primary); }
+.tabbar svg { width: 24px; height: 24px; }
+
+/* Сегменты */
+.seg {
+  display: flex; background: var(--chip); border-radius: 12px; padding: 2.5px;
+  gap: 2px; margin: 14px 0 16px;
+}
+.seg button {
+  flex: 1; border: 0; padding: 8px 2px; border-radius: 10px; background: none;
+  color: var(--text); font-size: 12.5px; font-weight: 600; cursor: pointer; transition: .18s;
+}
+.seg button.active { background: var(--card); box-shadow: 0 2px 8px rgba(0, 0, 0, .10); }
+
+/* Формы */
+.card { background: var(--card); border-radius: 16px; padding: 16px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0, 0, 0, .06); }
+label { display: block; font-size: 12.5px; font-weight: 600; color: var(--sub); margin: 0 0 7px 2px; text-transform: none; }
+input[type=text], input[type=password], input[type=number], textarea, select {
+  width: 100%; padding: 12px 13px; border: 1.2px solid var(--line); border-radius: 12px;
+  background: var(--bg); color: var(--text); font-size: 16px; outline: none; font-family: inherit;
+}
+input:focus, textarea:focus { border-color: var(--primary); }
+textarea { min-height: 96px; resize: vertical; font-size: 14px; }
+.row { display: flex; gap: 10px; }
+.row > * { flex: 1; }
+.hint { font-size: 12px; color: var(--sub); margin: 7px 2px 0; line-height: 1.45; }
+
+.btn {
+  display: block; width: 100%; padding: 14px; border: 0; border-radius: 14px;
+  background: var(--primary); color: var(--on-primary);
+  font-size: 16px; font-weight: 700; cursor: pointer; margin-top: 12px;
+  transition: transform .12s, opacity .15s;
+}
+.btn:active { transform: scale(.97); }
+.btn.sec { background: var(--chip); color: var(--text); font-weight: 600; }
+.btn.small { padding: 9px 14px; font-size: 13px; margin-top: 0; width: auto; }
+
+/* Прогресс задания */
+.job { background: var(--card); border-radius: 16px; padding: 16px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.job .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.job .lbl { font-size: 14px; font-weight: 700; }
+.job .st { font-size: 12px; color: var(--sub); font-weight: 600; }
+.pbar { height: 7px; background: var(--chip); border-radius: 99px; overflow: hidden; margin: 12px 0 10px; }
+.pbar > div { height: 100%; background: linear-gradient(90deg, #0a84ff, #5e5ce6); border-radius: 99px; transition: width .3s; }
+.counts { display: flex; gap: 6px; flex-wrap: wrap; }
+.counts .c { font-size: 11.5px; font-weight: 700; padding: 5px 9px; border-radius: 99px; background: var(--chip); }
+.counts .c.free { color: var(--free); } .counts .c.taken { color: var(--taken); }
+.counts .c.unavail { color: var(--unavail); } .counts .c.err { color: var(--sub); }
+.job .meta { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; flex-wrap: wrap; gap: 8px; }
+.job .eta { font-size: 12px; color: var(--sub); font-weight: 600; }
+.jobctrl { display: flex; gap: 8px; }
+.flood {
+  margin-top: 10px; padding: 10px 12px; border-radius: 12px; font-size: 13px; font-weight: 600;
+  background: color-mix(in srgb, var(--unavail) 14%, var(--card)); color: var(--unavail);
+}
+
+/* Лента результатов */
+.feed { display: flex; flex-direction: column; gap: 8px; }
+.res {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--card); border-radius: 14px; padding: 12px 13px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .05);
+}
+.res .dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+.res .u { font-weight: 700; font-size: 15px; word-break: break-all; }
+.res .own { font-size: 12px; color: var(--sub); margin-top: 2px; }
+.res .grow { flex: 1; min-width: 0; }
+.res .act { display: flex; gap: 6px; }
+.iconb {
+  border: 0; background: var(--chip); border-radius: 9px; padding: 7px 9px;
+  font-size: 13px; cursor: pointer; color: var(--text);
+}
+.iconb.on { color: #ff9500; }
+.iconb.star.on { color: #ffb700; }
+.res .err-t { font-size: 12px; color: var(--sub); margin-top: 2px; }
+.filter-row { display: flex; gap: 8px; align-items: center; margin: 0 2px 12px; }
+.filter-row label { margin: 0; display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text); font-weight: 600; }
+
+/* История */
+.histbar { display: flex; gap: 8px; margin-bottom: 12px; }
+.histbar input { flex: 1; }
+.chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 12px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip {
+  flex: 0 0 auto; font-size: 12.5px; font-weight: 700; padding: 7px 12px;
+  border-radius: 99px; background: var(--chip); border: 0; color: var(--sub); cursor: pointer;
+}
+.chip.active { background: var(--primary); color: #fff; }
+.export-row { display: flex; gap: 8px; margin-bottom: 14px; }
+.export-row .btn { margin-top: 0; }
+.empty { text-align: center; color: var(--sub); padding: 36px 12px; font-size: 14px; font-weight: 600; }
+.cached { font-size: 10.5px; color: var(--sub); font-weight: 600; }
+
+/* Инфо */
+.info h3 { font-size: 15px; margin: 18px 0 8px; }
+.info p, .info li { font-size: 13.5px; line-height: 1.55; color: var(--text); }
+.info ul { padding-left: 18px; margin: 6px 0; }
+.info .warn { color: var(--unavail); font-weight: 700; }
+
+.toast {
+  position: fixed; bottom: 104px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: #1c1c1e; color: #fff; font-size: 13.5px; font-weight: 600;
+  padding: 10px 18px; border-radius: 99px; opacity: 0; transition: .25s; z-index: 100; pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .3); max-width: 86vw; text-align: center;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+[hidden] { display: none !important; }
+.bot-note {
+  font-size: 12.5px; padding: 10px 12px; border-radius: 12px; margin-bottom: 12px;
+  background: color-mix(in srgb, var(--primary) 12%, var(--card));
+  color: var(--primary); font-weight: 600; line-height: 1.45;
+}
+input[type=checkbox] { accent-color: var(--primary); width: 17px; height: 17px; }

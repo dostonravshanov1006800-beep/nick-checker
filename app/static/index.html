@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nick Checker</title>
+<link rel="stylesheet" href="style.css?v=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡️</text></svg>">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+<div class="bot-note" id="bot-note" hidden></div>
+<main>
+  <div class="hero">
+    <h1>Nick&nbsp;Checker</h1>
+    <p>Проверка юзернеймов Telegram — по-настоящему</p>
+    <div class="badges">
+      <span class="badge">🟢 свободен</span>
+      <span class="badge">🔴 занят</span>
+      <span class="badge">🟡 недоступен</span>
+    </div>
+  </div>
+
+  <!-- ПРОВЕРКА -->
+  <section id="page-check">
+    <div class="seg" id="mode-seg">
+      <button data-m="one" class="active">Один</button>
+      <button data-m="list">Список</button>
+      <button data-m="pattern">Шаблон</button>
+      <button data-m="gen">Генератор</button>
+      <button data-m="dict">Словарь</button>
+    </div>
+
+    <div class="card" id="form-one">
+      <label>Юзернейм</label>
+      <input type="text" id="in-one" placeholder="@username или ссылка t.me/…" autocapitalize="off" autocomplete="off">
+      <div class="hint">Ник проверяется реальным запросом к Telegram: занят, свободен или недоступен.</div>
+      <button class="btn" id="btn-one">Проверить</button>
+    </div>
+
+    <div class="card" id="form-list" hidden>
+      <label>Список ников</label>
+      <textarea id="in-list" placeholder="durov, test_user
+user123
+…"></textarea>
+      <div class="row">
+        <div>
+          <label>Пауза между, сек</label>
+          <input type="number" id="in-delay-list" value="1.5" min="0.5" step="0.5">
+        </div>
+        <div>
+          <label>Лимит (до 5000)</label>
+          <input type="number" id="in-limit-list" value="5000" min="1" max="5000">
+        </div>
+      </div>
+      <div class="hint">Можно вставить текст из файла: <b>.txt</b> и <b>.csv</b> <span id="file-slot"></span></div>
+      <button class="btn" id="btn-list">Запустить список</button>
+    </div>
+
+    <div class="card" id="form-pattern" hidden>
+      <label>Шаблон</label>
+      <input type="text" id="in-pattern" placeholder="ka??a, tash####" autocapitalize="off">
+      <div class="hint"><b>?</b> — буква · <b>#</b> — цифра · <b>*</b> — буква или цифра. Пример: <b>ka??a</b></div>
+      <div class="row">
+        <div>
+          <label>Лимит проверок</label>
+          <input type="number" id="in-limit-pat" value="100" min="1" max="5000">
+        </div>
+        <div>
+          <label>Пауза, сек</label>
+          <input type="number" id="in-delay-pat" value="1.5" min="0.5" step="0.5">
+        </div>
+      </div>
+      <div class="filter-row" style="margin:12px 2px 0">
+        <label><input type="checkbox" id="in-rand"> Случайный порядок</label>
+      </div>
+      <button class="btn" id="btn-pattern">Запустить шаблон</button>
+    </div>
+
+    <div class="card" id="form-gen" hidden>
+      <div class="row">
+        <div>
+          <label>Длина (5–32)</label>
+          <input type="number" id="in-len" value="6" min="5" max="32">
+        </div>
+        <div>
+          <label>Сколько проверить</label>
+          <input type="number" id="in-limit-gen" value="50" min="1" max="5000">
+        </div>
+      </div>
+      <label style="margin-top:12px">Стиль</label>
+      <select id="in-style">
+        <option value="pronounceable">Произносимые</option>
+        <option value="letters">Только буквы</option>
+        <option value="letters_digits">Буквы + цифры</option>
+      </select>
+      <label style="margin-top:12px">Пауза между, сек</label>
+      <input type="number" id="in-delay-gen" value="1.5" min="0.5" step="0.5">
+      <button class="btn" id="btn-gen">Запустить генератор</button>
+    </div>
+
+    <div class="card" id="form-dict" hidden>
+      <label>Слова (по одному в строке) или файл</label>
+      <textarea id="in-dict" placeholder="bitcoin
+telegram
+…"></textarea>
+      <div class="row">
+        <div>
+          <label>Лимит</label>
+          <input type="number" id="in-limit-dict" value="5000" min="1" max="5000">
+        </div>
+        <div>
+          <label>Пауза, сек</label>
+          <input type="number" id="in-delay-dict" value="1.5" min="0.5" step="0.5">
+        </div>
+      </div>
+      <div class="hint">Слова короче 5 символов и с недопустимыми знаками пропускаются автоматически.</div>
+      <button class="btn" id="btn-dict">Запустить словарь</button>
+    </div>
+
+    <!-- Активное задание -->
+    <div class="job" id="job" hidden>
+      <div class="top">
+        <span class="lbl" id="job-label"></span>
+        <span class="st" id="job-status"></span>
+      </div>
+      <div class="pbar"><div id="job-bar" style="width:0%"></div></div>
+      <div class="counts">
+        <span class="c">✓ <span id="cnt-done">0</span></span>
+        <span class="c free">🟢 <span id="cnt-free">0</span></span>
+        <span class="c taken">🔴 <span id="cnt-taken">0</span></span>
+        <span class="c unavail">🟡 <span id="cnt-unavail">0</span></span>
+        <span class="c err">⚪ <span id="cnt-err">0</span></span>
+      </div>
+      <div id="job-flood" class="flood" hidden></div>
+      <div class="meta">
+        <span class="eta" id="job-eta"></span>
+        <div class="jobctrl" id="jobctrl">
+          <button class="btn sec small" id="btn-pause">⏸ Пауза</button>
+          <button class="btn sec small" id="btn-stop">⏹ Стоп</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="filter-row" id="feed-filter" hidden>
+      <label><input type="checkbox" id="only-free"> Показывать только свободные</label>
+    </div>
+    <div class="feed" id="feed"></div>
+  </section>
+
+  <!-- ИСТОРИЯ -->
+  <section id="page-history" hidden>
+    <div class="histbar">
+      <input type="text" id="hist-search" placeholder="🔍 Поиск по истории">
+    </div>
+    <div class="chips" id="hist-chips">
+      <button class="chip active" data-s="">Все</button>
+      <button class="chip" data-s="free">🟢 Свободные</button>
+      <button class="chip" data-s="taken">🔴 Занятые</button>
+      <button class="chip" data-s="unavailable">🟡 Недоступные</button>
+      <button class="chip" data-s="error">⚪ Ошибки</button>
+      <button class="chip" id="hist-sort">По длине ⇅</button>
+    </div>
+    <div class="export-row">
+      <a class="btn sec" id="exp-all" href="#">CSV: всё</a>
+      <a class="btn" id="exp-free" href="#">CSV: только свободные</a>
+    </div>
+    <div class="feed" id="hist-feed"></div>
+  </section>
+
+  <!-- ИЗБРАННОЕ -->
+  <section id="page-fav" hidden>
+    <button class="btn" id="btn-check-fav">Проверить избранное сейчас</button>
+    <p class="hint" style="margin:10px 2px 14px">Проверит все отмеченные ★ ники и покажет, не освободился ли какой-то.</p>
+    <div class="feed" id="fav-feed"></div>
+  </section>
+
+  <!-- ИНФО -->
+  <section id="page-info" class="info" hidden>
+    <h3>Как это работает</h3>
+    <p>Каждый результат — реальный запрос к Telegram (MTProto): сначала проверяется, занят ли ник, затем — можно ли его установить. Никаких имитаций и «случайных» ответов.</p>
+    <h3>Статусы</h3>
+    <ul>
+      <li>🟢 <b>Свободен</b> — ник можно установить прямо сейчас</li>
+      <li>🔴 <b>Занят</b> — принадлежит пользователю, боту, каналу или группе</li>
+      <li>🟡 <b>Недоступен</b> — никто не отобразил, но Telegram не позволяет занять</li>
+      <li>⚪ <b>Ошибка</b> — не удалось проверить, причина показывается как есть</li>
+    </ul>
+    <h3>Правила ников</h3>
+    <ul>
+      <li>Только латиница a–z, цифры и «_», длина 5–32</li>
+      <li>Начинается с буквы, не заканчивается на «_», без «__»</li>
+    </ul>
+    <h3>Честные ограничения</h3>
+    <ul>
+      <li>Telegram ограничивает частоту запросов: очередь идёт по одному, с паузой (по умолчанию 1,5 сек)</li>
+      <li>При FloodWait вся очередь встаёт на паузу и продолжается сама</li>
+      <li>Свободный ник могут занять другие до того, как вы его поставите</li>
+      <li class="warn">Рекомендуется использовать отдельный аккаунт-проверяльщик</li>
+    </ul>
+    <h3>Как установить ник</h3>
+    <p>Telegram → Настройки → Изменить профиль → Имя пользователя.</p>
+  </section>
+</main>
+
+<nav class="tabbar" id="tabbar">
+  <button class="active" data-tab="check">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+    Проверка
+  </button>
+  <button data-tab="history">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 3"/></svg>
+    История
+  </button>
+  <button data-tab="fav">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.7l2.9 5.9 6.5 1-4.7 4.6 1.1 6.5L12 17.6l-5.8 3.1 1.1-6.5L2.6 9.6l6.5-1z"/></svg>
+    Избранное
+  </button>
+  <button data-tab="info">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.5v.01"/></svg>
+    Инфо
+  </button>
+</nav>
+
+<div class="toast" id="toast"></div>
+<script src="app.js?v=1"></script>
+</body>
+</html>
