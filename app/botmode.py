@@ -220,7 +220,7 @@ async def cmd_auto(msg: Message):
 
 
 HUNT_BATCH = 400          # вариантов за партию
-HUNT_DELAY = 1.2          # пауза между проверками
+HUNT_DELAY = 3.0          # пауза между проверками (× jitter 1.0-1.8 → 3-5.4 сек)
 _hunt_report: dict[int, dict] = {}   # uid -> {found, ts, reported}
 
 
@@ -254,6 +254,7 @@ async def hunt_start(msg: Message):
         f"Партия {batch + 1}: ~{HUNT_BATCH} вариантов, примерно {eta} мин.\n"
         f"Проверено всего будет ~{total_all}, свободные сохраняются в ⭐ автоматически.\n\n"
         f"Можешь закрыть чат - охота идёт сама. Списки находок буду присылать сюда.\n"
+        f"Если Telegram попросит подождать (флуд) - встану на паузу и продолжу сам.\n"
         f"Остановить: <code>/hunt off</code>")
     await _hunt_run(msg, batch + 1)
 

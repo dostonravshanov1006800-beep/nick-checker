@@ -6,8 +6,10 @@ from telethon import errors
 
 from . import checker, db, rules
 
-FLOOD_MAX_WAIT = 900  # больше 15 минут — остановка очереди
 NET_RETRIES = 3
+FLOOD_MARGIN = 60          # запас к паузе, который просит Telegram
+JITTER = (1.0, 1.8)        # случайный множитель паузы (не робот, а человек)
+MAX_DELAY_FACTOR = 4.0     # потолок адаптивного замедления после флуда
 
 
 class Job:
@@ -51,6 +53,7 @@ class CheckQueue:
     def __init__(self, engine: checker.Engine):
         self.engine = engine
         self.job: Job | None = None
+        self.delay_factor = 1.0     # адаптивное замедление: растёт после каждого флуда
         self._subscribers: list[asyncio.Queue] = []
         self._wake = asyncio.Event()
         self._task: asyncio.Task | None = None
@@ -199,19 +202,26 @@ class CheckQueue:
                 if job.total_hint and job.done >= job.total_hint:
                     job.status = "done"
                     break
-                await asyncio.sleep(job.delay)
+                import random as _r
+                await asyncio.sleep(job.delay * self.delay_factor * _r.uniform(*JITTER))
             job.finished_at = job.finished_at or time.time()
             await self._publish({"type": "job", "job": job.snapshot()})
 
     def handle_flood(self, seconds: int):
-        """Вся очередь на паузу при FloodWait (спека §6)."""
+        """Вся очередь на паузу при FloodWait: ЖДЁМ и продолжаем сами.
+
+        Никогда не останавливаем очередь из-за флуда — бот обязан
+        пережидать бан и продолжать (переживает и рестарты GitHub Actions).
+        После каждого флуда темп замедляется в 1.5 раза (потолок 4x),
+        чтобы флуды не повторялись.
+        """
         j = self.job
         if not j:
             return
-        if seconds > FLOOD_MAX_WAIT:
-            j.status = "stopped"
-            j.note = f"Telegram просит ждать {seconds // 60} мин — очередь остановлена"
-        else:
-            j.status = "flood"
-            j.note = f"Telegram просит подождать {seconds} сек"
-            j.flood_until = time.time() + seconds
+        wait = seconds + min(FLOOD_MARGIN, max(1, seconds // 10))
+        j.status = "flood"
+        j.flood_until = time.time() + wait
+        self.delay_factor = min(MAX_DELAY_FACTOR, self.delay_factor * 1.5)
+        hrs = seconds / 3600
+        j.note = (f"Telegram просит ждать {seconds // 60} мин ({hrs:.1f} ч) — "
+                  f"встаю на паузу и продолжу сам, темп замедляю")
