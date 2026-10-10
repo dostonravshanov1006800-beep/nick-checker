@@ -133,9 +133,39 @@ async function botLoadFeed() {
   if (j) { renderJob(j); (j.last_results || []).slice().reverse().forEach((r) => feedItem(r)); }
 }
 
+/* sendData доходит только из клавиатурной кнопки; из синей меню-кнопки
+   Telegram молча не доставляет - если приложение не закрылось, показываем команду. */
+function payloadToCommand(p) {
+  if (p.type === "single") return p.username || "";
+  if (p.type === "job" && p.mode === "favorites") return "\u2b50 Избранное";
+  if (p.type === "job" && p.mode === "auto") return "/auto " + p.base + (p.limit && p.limit !== 40 ? " " + p.limit : "");
+  if (p.type === "job" && p.mode === "random") {
+    const st = p.style === "pronounceable" ? "произносимые" : p.style === "letters_digits" ? "цифры" : "буквы";
+    return "/gen " + p.length + " " + st + " " + p.limit;
+  }
+  if (p.type === "job" && p.mode === "pattern") return p.pattern || "";
+  if (p.type === "job" && (p.mode === "list" || p.mode === "dictionary")) return p.text || "";
+  return "";
+}
+function showSendFallback(p) {
+  const cmd = (payloadToCommand(p) || "").trim();
+  if (!cmd) { toast("Не удалось отправить: откройте приложение из бота"); return; }
+  $("#fb-cmd").textContent = cmd;
+  $("#send-fb").hidden = false;
+  $("#fb-copy").onclick = () => { copyText(cmd); $("#send-fb").hidden = true; };
+  $("#fb-close").onclick = () => { $("#send-fb").hidden = true; };
+}
 function sendData(payload) {
-  if (tg && tg.initData !== undefined) { try { tg.sendData(JSON.stringify(payload)); } catch (e) { toast("Не удалось отправить: откройте приложение кнопкой в боте"); } }
-  else toast("Откройте приложение из бота");
+  let delivered = false;
+  if (tg && tg.initData !== undefined) {
+    try { tg.sendData(JSON.stringify(payload)); delivered = true; } catch (e) { delivered = false; }
+  }
+  if (delivered) {
+    // при успехе Telegram закрывает приложение; живы через 1.7с - доставка не прошла
+    setTimeout(() => showSendFallback(payload), 1700);
+  } else {
+    showSendFallback(payload);
+  }
 }
 
 /* ---------- избранное ---------- */

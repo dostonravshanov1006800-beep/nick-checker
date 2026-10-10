@@ -165,3 +165,9 @@ textarea { min-height: 96px; resize: vertical; font-size: 14px; }
   color: var(--primary); font-weight: 600; line-height: 1.45;
 }
 input[type=checkbox] { accent-color: var(--primary); width: 17px; height: 17px; }
+
+.sheet-ov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;display:flex;align-items:flex-end;justify-content:center}
+.sheet-ov[hidden]{display:none!important}
+.sheet{width:100%;max-width:480px;border-radius:18px 18px 0 0;padding:20px 18px calc(18px + env(safe-area-inset-bottom))}
+.fb-cmd{background:#f2f2f7;border-radius:12px;padding:12px;margin:12px 0;font-family:monospace;font-size:13px;word-break:break-all}
+@media (prefers-color-scheme: dark){.fb-cmd{background:#1c1c1e}}

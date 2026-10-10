@@ -37,12 +37,12 @@ engine: Engine | None = None
 _prog: dict[int, list] = {}
 
 
-def menu(uid: int) -> ReplyKeyboardMarkup:
+def menu(uid: int | None = None) -> ReplyKeyboardMarkup:
+    """Нижняя панель без кнопки мини-аппа — синяя кнопка открывает приложение (menu button)."""
     return ReplyKeyboardMarkup(
         is_persistent=True,
         resize_keyboard=True,
         keyboard=[
-            [KeyboardButton(text="🚀 Приложение", web_app=WebAppInfo(url=f"{APP_URL}?uid={uid}&v=1"))],
             [KeyboardButton(text="⏹ Стоп"), KeyboardButton(text="⭐ Избранное")],
         ])
 
@@ -409,6 +409,13 @@ async def run():
     cq = queue.CheckQueue(engine)
     await cq.start()
     if BOT_TOKEN:
+        # синяя кнопка мини-аппа слева в поле ввода (открывает приложение)
+        try:
+            from aiogram.types import MenuButtonWebApp
+            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(
+                type="web_app", text="Ник-чекер", web_app=WebAppInfo(url=APP_URL)))
+        except Exception:
+            log.exception("menu button setup failed")
         await bot.delete_webhook(drop_pending_updates=False)
         try:
             from aiogram.types import BotCommand
