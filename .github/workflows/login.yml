@@ -81,13 +81,24 @@ jobs:
                   client = TelegramClient(StringSession(state["session"]), api_id, api_hash)
                   await client.connect()
                   from telethon.errors import SessionPasswordNeededError
-                  try:
-                      await client.sign_in(phone=phone, code=code,
-                                          phone_code_hash=state["phone_code_hash"])
-                  except SessionPasswordNeededError:
-                      pw = os.environ.get("PASSWORD", "").strip()
-                      assert pw, "NEED_2FA_PASSWORD"
-                      await client.sign_in(password=pw)
+                  pw = os.environ.get("PASSWORD", "").strip()
+                  if pw:
+                      # аккаунт уже на стадии пароля — код мог быть погашен
+                      try:
+                          await client.sign_in(password=pw)
+                          print("LOGIN_STAGE: password-direct")
+                      except Exception as e:
+                          print(f"password-direct failed: {type(e).__name__}")
+                          await client.sign_in(phone=phone, code=code,
+                                              phone_code_hash=state["phone_code_hash"])
+                          print("LOGIN_STAGE: code")
+                  else:
+                      try:
+                          await client.sign_in(phone=phone, code=code,
+                                              phone_code_hash=state["phone_code_hash"])
+                      except SessionPasswordNeededError:
+                          assert os.environ.get("PASSWORD"), "NEED_2FA_PASSWORD"
+                          await client.sign_in(password=os.environ["PASSWORD"])
                   me = await client.get_me()
                   open("/tmp/session.txt", "w").write(StringSession.save(client.session))
                   print(f"LOGIN_OK: {getattr(me, 'first_name', '')} (@{getattr(me, 'username', '-')})")
