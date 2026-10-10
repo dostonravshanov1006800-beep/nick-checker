@@ -54,7 +54,8 @@ BANNER = (
     "Просто пришли ник сообщением — например <code>@durov</code>.\n"
     "Или пришли сразу список: <code>nick1, nick2, nick3</code>.\n"
     "Шаблон: <code>ka??a</code> ( ? буква, # цифра, * любая ).\n"
-    "Генератор: <code>/gen 6 произносимые 50</code>\n\n"
+    "Генератор: <code>/gen 6 произносимые 50</code>\n"
+    "Авто-поиск: <code>/auto doston</code> — сам найду свободный и сохраню ⭐\n\n"
     "👇 Или открой приложение кнопкой ниже."
 )
 
@@ -166,6 +167,23 @@ async def cmd_gen(msg: Message):
     asyncio.create_task(progress_updater(msg.chat.id))
 
 
+@dp.message(Command("auto"))
+async def cmd_auto(msg: Message):
+    base = (msg.text or "").split(" ", 1)
+    base = base[1].strip() if len(base) > 1 else ""
+    if not base:
+        await msg.answer("Формат: <code>/auto doston</code> — переберу варианты вокруг ника, найду свободный и сохраню в избранное.")
+        return
+    if not engine_ok():
+        await unavailable(msg)
+        return
+    parts = (msg.text or "").split()
+    limit = 40
+    if len(parts) > 2 and parts[2].isdigit():
+        limit = min(5000, max(1, int(parts[2])))
+    await run_auto(msg, base, limit=limit, delay=1.5)
+
+
 @dp.message(Command("stop"))
 async def cmd_stop(msg: Message):
     ok = cq.control("stop")
@@ -199,6 +217,44 @@ async def btn_fav(msg: Message):
     await cq.submit(msg.from_user.id, [f["username"] for f in favs],
                    "избранное · " + str(len(favs)), 1.5, len(favs))
     asyncio.create_task(progress_updater(msg.chat.id))
+
+
+async def run_auto(msg: Message, base: str, limit: int = 40, delay: float = 1.5):
+    from . import rules as _r
+    b = _r.normalize(base)
+    ok, why = _r.validate(b)
+    if not ok:
+        await msg.answer(f"⚠️ {why}")
+        return
+    limit = min(5000, max(1, int(limit)))
+    items = list(generators.auto_variants(b, limit))
+    if not items:
+        await msg.answer("⚠️ Не удалось построить варианты.")
+        return
+    await report_job(msg, f"авто-поиск · {b} · {len(items)} вариантов")
+    job = await cq.submit(msg.from_user.id, items, f"авто-поиск · {b}", delay,
+                         len(items), stop_on_free=True, auto_save=True)
+    asyncio.create_task(progress_updater(msg.chat.id))
+    asyncio.create_task(auto_watcher(msg, job, len(items)))
+
+
+async def auto_watcher(msg: Message, job, total: int):
+    """Ждёт конца авто-поиска и присылает итог отдельным сообщением."""
+    while job.status in ("queued", "running", "paused", "flood"):
+        await asyncio.sleep(2)
+    if job.status == "stopped":
+        return  # прогресс-сообщение уже сказало всё
+    if job.free_recent:
+        u = job.free_recent[-1]
+        await msg.answer(
+            f"🟢 <b>Найден свободный: @{u}</b>\n"
+            f"⭐ Уже сохранён в избранное.\n"
+            f"Проверено вариантов: {job.done}",
+            reply_markup=fav_kb(u))
+    else:
+        await msg.answer(
+            f"🔴 Свободных не нашёл: перебрал {job.done} вариантов вокруг ника.\n"
+            "Попробуй другую основу или увеличь лимит: <code>/auto doston 100</code>")
 
 
 def is_pattern(t: str) -> bool:
@@ -244,6 +300,10 @@ async def on_web_app(msg: Message):
             items = generators.pattern_candidates(payload.get("pattern", ""), limit=limit,
                                                   random_order=bool(payload.get("random")))
             label, total = f"шаблон {payload.get('pattern', '')}", None
+        elif mode == "auto":
+            await run_auto(msg, payload.get("base", ""), limit=payload.get("limit") or 40,
+                           delay=delay)
+            return
         elif mode == "random":
             items = generators.random_candidates(int(payload.get("length", 6)),
                                                  payload.get("style", "letters"), limit)
@@ -354,6 +414,7 @@ async def run():
             from aiogram.types import BotCommand
             await bot.set_my_commands([BotCommand(command="start", description="Проверка ников"),
                                        BotCommand(command="gen", description="Генератор ников"),
+                                       BotCommand(command="auto", description="Авто-поиск свободного"),
                                        BotCommand(command="stop", description="Остановить очередь"),
                                        BotCommand(command="pause", description="Пауза"),
                                        BotCommand(command="resume", description="Продолжить")])

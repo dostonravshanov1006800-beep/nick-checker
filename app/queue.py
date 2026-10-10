@@ -11,7 +11,10 @@ NET_RETRIES = 3
 
 
 class Job:
-    def __init__(self, user_id: int, items, label: str = "", delay: float = 1.5, total: int | None = None):
+    def __init__(self, user_id: int, items, label: str = "", delay: float = 1.5, total: int | None = None,
+                 stop_on_free: bool = False, auto_save: bool = False):
+        self.stop_on_free = stop_on_free   # авто-поиск: стоп на первом свободном
+        self.auto_save = auto_save         # сохранить свободный ник в избранное
         self.user_id = user_id
         self.items = iter(items)
         self.label = label
@@ -77,12 +80,13 @@ class CheckQueue:
             self._task = asyncio.create_task(self._worker())
         return self._task
 
-    async def submit(self, user_id: int, items, label="", delay=1.5, total=None) -> Job:
+    async def submit(self, user_id: int, items, label="", delay=1.5, total=None,
+                     stop_on_free=False, auto_save=False) -> Job:
         old = self.job
         if old and old.status in ("queued", "running", "paused", "flood"):
             old.status = "stopped"
             old.note = "заменена новой очередью"
-        self.job = Job(user_id, items, label, delay, total)
+        self.job = Job(user_id, items, label, delay, total, stop_on_free, auto_save)
         self._wake.set()
         await self._publish({"type": "job", "job": self.job.snapshot()})
         return self.job
@@ -182,6 +186,13 @@ class CheckQueue:
                     job.counts[r["status"]] += 1
                 if r["status"] == "free":
                     job.free_recent.append(r["username"])
+                    if job.auto_save:
+                        db.add_favorite(job.user_id, r["username"])
+                    if job.stop_on_free:
+                        job.status = "done"
+                        job.note = f"🟢 найден свободный @{r['username']}"
+                        pending = None
+                        break
                 job.last_results.append({k: r.get(k) for k in ("username", "status", "error", "owner")})
                 await self._publish({"type": "result", "result": r, "job": job.snapshot()})
                 if job.total_hint and job.done >= job.total_hint:

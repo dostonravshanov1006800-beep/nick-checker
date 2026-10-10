@@ -183,11 +183,13 @@ function readJobParams(kind) {
   if (kind === "pattern") return { mode: "pattern", pattern: $("#in-pattern").value.trim().toLowerCase(), delay: delay("#in-delay-pat"), limit: +$("#in-limit-pat").value, random: $("#in-rand").checked };
   if (kind === "gen") return { mode: "random", length: +$("#in-len").value, style: $("#in-style").value, delay: delay("#in-delay-gen"), limit: +$("#in-limit-gen").value };
   if (kind === "dict") return { mode: "dictionary", text: $("#in-dict").value, delay: delay("#in-delay-dict"), limit: +$("#in-limit-dict").value };
+  if (kind === "auto") return { mode: "auto", base: $("#in-auto").value.trim().toLowerCase(), delay: delay("#in-delay-auto"), limit: +$("#in-limit-auto").value };
 }
 async function submitJob(kind) {
   haptic("medium");
   const p = readJobParams(kind);
   if (p.mode === "pattern" && !p.pattern) { toast("Введите шаблон, например ka??a"); return; }
+  if (p.mode === "auto" && !p.base) { toast("Введите желаемый ник"); return; }
   if ((p.mode === "list" || p.mode === "dictionary") && !p.text.trim()) { toast("Список пуст"); return; }
   $("#feed").innerHTML = "";
   if (MODE === "local") {
@@ -291,7 +293,7 @@ async function init() {
   $$("#mode-seg button").forEach((b) => b.onclick = () => {
     haptic("selection");
     $$("#mode-seg button").forEach((x) => x.classList.toggle("active", x === b));
-    ["one", "list", "pattern", "gen", "dict"].forEach((m) => $("#form-" + m).hidden = m !== b.dataset.m);
+    ["one", "list", "pattern", "gen", "auto", "dict"].forEach((m) => $("#form-" + m).hidden = m !== b.dataset.m);
   });
 
   /* кнопки */
@@ -301,6 +303,8 @@ async function init() {
   $("#btn-pattern").onclick = () => submitJob("pattern");
   $("#btn-gen").onclick = () => submitJob("gen");
   $("#btn-dict").onclick = () => submitJob("dict");
+  $("#btn-auto").onclick = () => submitJob("auto");
+  $("#in-auto").addEventListener("keydown", (e) => { if (e.key === "Enter") submitJob("auto"); });
   $("#btn-check-fav").onclick = submitFavCheck;
   attachFileSlot("#file-slot", "#in-list");
 

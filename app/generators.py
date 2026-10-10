@@ -109,3 +109,58 @@ def dictionary_candidates(words: list[str], limit: int = MAX_LIST):
             n += 1
             if n >= limit:
                 return
+
+
+# ---------- авто-поиск: умные варианты вокруг желаемого ника ----------
+LEET = {"o": "0", "e": "3", "i": "1", "a": "4", "l": "1", "s": "5", "t": "7"}
+PREFIX = ["the", "its", "real", "mr", "im", "only"]
+SUFFIX = ["hub", "tg", "app", "x", "pro", "ly", "io", "_"]
+
+
+def _leet(w: str) -> str:
+    return "".join(LEET.get(c, c) for c in w)
+
+
+def auto_variants(base: str, limit: int = 40):
+    """Упорядоченные кандидаты вокруг базы: точный, ближайшие мутации, префиксы/суффиксы.
+
+    Порядок = «насколько похоже на желаемый»: сначала сам ник и минимальные
+    отличия (цифра, leet, подчёркивание), затем приставки. Всё валидируется
+    правилами Telegram; дубликаты убираются.
+    """
+    b = rules.normalize(base)
+    if not b:
+        return
+    seen: set[str] = set()
+    queue: list[str] = []
+
+    def push(w: str):
+        if w and w not in seen:
+            seen.add(w)
+            queue.append(w)
+
+    push(b)                                   # 1) точный
+    for d in "1234567890":                    # 2) цифра в конец
+        push(f"{b}{d}")
+    push(_leet(b))                            # 3) leet-замены
+    push(f"{b}_")                             # 4) подчёркивание
+    push(f"{b}{b[-1]}")                        # 5) удвоение последней
+    for d in range(10, 100):                   # 6) двузначные
+        push(f"{b}{d}")
+    for p in PREFIX:                           # 7) префиксы
+        push(f"{p}{b}"), push(f"{p}_{b}")
+    for s in SUFFIX:                           # 8) суффиксы
+        push(f"{b}{s}"), push(f"{b}_{s}".rstrip("_") if s == "_" else f"{b}_{s}")
+    for d in "123456789":                      # 9) leet + цифра
+        push(f"{_leet(b)}{d}")
+    if len(b) > 5:                             # 10) сокращения
+        push(b[:-1]), push(f"{b[:-1]}1")
+    seen.clear()
+    n = 0
+    for w in queue:
+        ok, _ = rules.validate(w)
+        if ok:
+            yield w
+            n += 1
+            if n >= max(1, limit):
+                return

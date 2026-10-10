@@ -118,3 +118,27 @@ def test_unavailable_engine_honest():
         await botmode.on_text(m)
     asyncio.run(go())
     assert "не привязан" in m.replies[0]
+
+
+def test_auto_search_stops_and_saves():
+    """Авто-поиск: стоп на первом свободном + автосохранение в избранное."""
+    from app import db
+
+    cq = botmode.cq
+    items = ["taken1", "taken2", "free_nick", "free2"]
+
+    async def go():
+        await cq.start()
+        job = await cq.submit(42, items, "auto", 0, len(items), stop_on_free=True, auto_save=True)
+        for _ in range(100):
+            await asyncio.sleep(0.02)
+            if job.status in ("done", "stopped"):
+                break
+        return job
+
+    job = asyncio.run(go())
+    assert job.status == "done"
+    assert job.free_recent == ["free_nick"]
+    assert "free_nick" in [f["username"] for f in db.favorites(42)]
+    # после свободного ник не перебирает дальше
+    assert job.done == 3

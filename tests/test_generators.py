@@ -48,3 +48,22 @@ def test_dictionary():
     words = ["кот", "durov", "to", "valid_word", "OK_NAME"]
     got = list(generators.dictionary_candidates(words))
     assert got == ["durov", "valid_word", "ok_name"]
+
+
+def test_auto_variants_order_and_dedup():
+    from app.generators import auto_variants
+    v = list(auto_variants("doston", 40))
+    assert v[0] == "doston"                     # точный ник первым
+    assert len(v) == len(set(v))                # без дубликатов
+    assert all(len(u) >= 5 for u in v)          # валидные длины
+    assert "doston1" in v[:5]                   # ближайшая мутация рано
+
+
+def test_auto_variants_limit():
+    from app.generators import auto_variants
+    assert len(list(auto_variants("tester", 7))) == 7
+
+
+def test_auto_variants_invalid_base():
+    from app.generators import auto_variants
+    assert list(auto_variants("", 10)) == []

@@ -4,6 +4,8 @@ import sqlite3
 import time
 import threading
 
+from . import rules
+
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "checks.db"))
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
@@ -81,6 +83,19 @@ def history(user_id: int = 0, search: str = "", status: str = "", sort: str = "n
     with _lock:
         rows = conn().execute(q, args).fetchall()
     return [dict(r) for r in rows]
+
+
+def add_favorite(user_id: int, username: str) -> bool:
+    """Добавить в избранное (без toggle): True если добавлено, False если уже был."""
+    u = rules.normalize(username)
+    if not u:
+        return False
+    with conn() as _conn:
+        cur = _conn.execute("SELECT 1 FROM favorites WHERE user_id=? AND username=?", (user_id, u)).fetchone()
+        if cur:
+            return False
+        _conn.execute("INSERT INTO favorites(user_id, username, added_at) VALUES(?,?,?)", (user_id, u, int(time.time())))
+    return True
 
 
 def toggle_favorite(user_id: int, username: str) -> bool:
