@@ -36,7 +36,12 @@ class FakeMsg:
         self.web_app_data = web
         self.replies = []
 
+    kwargs: list = None
+
     async def answer(self, text, **kw):
+        if self.kwargs is None:
+            self.kwargs = []
+        self.kwargs.append(kw)
         self.replies.append(text)
         return types.SimpleNamespace(message_id=1)
 
@@ -53,11 +58,57 @@ def _setup():
     botmode.cq = queue.CheckQueue(botmode.engine)
 
 
-def test_start_banner():
+def _cmd(args=None):
+    return types.SimpleNamespace(args=args)
+
+
+def _link(d):
+    import base64, json
+    return "j_" + base64.urlsafe_b64encode(json.dumps(d, ensure_ascii=False).encode()).decode().rstrip("=")
+
+
+def test_start_banner_without_keyboard():
     m = FakeMsg("/start")
-    asyncio.run(botmode.cmd_start(m))
+    asyncio.run(botmode.cmd_start(m, _cmd()))
     r = m.replies[0]
     assert "NICK CHECKER" in r and "Свободен" in r and "Занят" in r
+    from aiogram.types import ReplyKeyboardRemove
+    assert isinstance(m.kwargs[0].get("reply_markup"), ReplyKeyboardRemove)   # нижняя панель убрана
+
+
+def test_deeplink_single():
+    m = FakeMsg("/start")
+    asyncio.run(botmode.cmd_start(m, _cmd(_link({"t": "single", "u": "durov"}))))
+    assert any("durov" in r and "занят" in r for r in m.replies)
+
+
+def test_deeplink_auto_finds_free():
+    m = FakeMsg("/start")
+    async def go():
+        await botmode.cq.start()
+        await botmode.cmd_start(m, _cmd(_link({"t": "job", "m": "auto", "b": "freeabc", "n": 5})))
+        for _ in range(60):
+            await asyncio.sleep(0.2)
+            if any("Найден свободный" in r for r in m.replies):
+                break
+    asyncio.run(go())
+    assert any("Найден свободный" in r for r in m.replies)
+
+
+def test_deeplink_list_compact():
+    m = FakeMsg("/start")
+    async def go():
+        await botmode.cq.start()
+        await botmode.cmd_start(m, _cmd(_link({"t": "job", "m": "list", "x": "durov,freeone,freetwo", "n": 5000})))
+        await asyncio.sleep(0.3)
+    asyncio.run(go())
+    assert any("список" in r for r in m.replies)
+
+
+def test_deeplink_garbage():
+    m = FakeMsg("/start")
+    asyncio.run(botmode.cmd_start(m, _cmd("j_!!!не-base64")))
+    assert any("Не удалось" in r for r in m.replies)
 
 
 def test_single_taken():

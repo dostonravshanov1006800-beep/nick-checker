@@ -133,39 +133,43 @@ async function botLoadFeed() {
   if (j) { renderJob(j); (j.last_results || []).slice().reverse().forEach((r) => feedItem(r)); }
 }
 
-/* sendData доходит только из клавиатурной кнопки; из синей меню-кнопки
-   Telegram молча не доставляет - если приложение не закрылось, показываем команду. */
-function payloadToCommand(p) {
-  if (p.type === "single") return p.username || "";
-  if (p.type === "job" && p.mode === "favorites") return "\u2b50 Избранное";
-  if (p.type === "job" && p.mode === "auto") return "/auto " + p.base + (p.limit && p.limit !== 40 ? " " + p.limit : "");
-  if (p.type === "job" && p.mode === "random") {
-    const st = p.style === "pronounceable" ? "произносимые" : p.style === "letters_digits" ? "цифры" : "буквы";
-    return "/gen " + p.length + " " + st + " " + p.limit;
-  }
-  if (p.type === "job" && p.mode === "pattern") return p.pattern || "";
-  if (p.type === "job" && (p.mode === "list" || p.mode === "dictionary")) return p.text || "";
-  return "";
+/* Канал апп -> бот: deep link t.me/<bot>?start=j_<base64url(JSON)>.
+   Работает из синей меню-кнопки (sendData оттуда не доставляется). Пользователь
+   жмёт «Старт» в чате, бот запускает задание, прогресс и результаты идут в приложение. */
+const BOT_USERNAME = "adsmining_bot";
+function b64url(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  let bin = ""; bytes.forEach((x) => (bin += String.fromCharCode(x)));
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
-function showSendFallback(p) {
-  const cmd = (payloadToCommand(p) || "").trim();
-  if (!cmd) { toast("Не удалось отправить: откройте приложение из бота"); return; }
-  $("#fb-cmd").textContent = cmd;
-  $("#send-fb").hidden = false;
-  $("#fb-copy").onclick = () => { copyText(cmd); $("#send-fb").hidden = true; };
-  $("#fb-close").onclick = () => { $("#send-fb").hidden = true; };
+function compactPayload(p) {
+  // deep link ограничен 64 символами payload, поэтому режем длинное и шлём компактно
+  const c = { t: p.type, m: p.mode };
+  if (p.username) c.u = p.username;
+  if (p.base) c.b = p.base;
+  if (p.pattern) c.p = p.pattern;
+  if (p.length) c.l = p.length;
+  if (p.style) c.s = p.style;
+  if (p.limit) c.n = p.limit;
+  if (p.text) c.x = p.text;
+  if (p.random) c.r = 1;
+  return c;
 }
 function sendData(payload) {
-  let delivered = false;
-  if (tg && tg.initData !== undefined) {
-    try { tg.sendData(JSON.stringify(payload)); delivered = true; } catch (e) { delivered = false; }
-  }
-  if (delivered) {
-    // при успехе Telegram закрывает приложение; живы через 1.7с - доставка не прошла
-    setTimeout(() => showSendFallback(payload), 1700);
-  } else {
-    showSendFallback(payload);
-  }
+  // 1) из клавиатурной кнопки (редкий случай) - родная доставка
+  // 2) иначе - deep link, открывает чат с ботом, одно нажатие «Старт»
+  const link = `https://t.me/${BOT_USERNAME}?start=j_${b64url(compactPayload(payload))}`;
+  if (link.length > 2000) { toast("Слишком длинный список: уменьшите до ~300 ников или отправьте файлом в чат"); return; }
+  haptic("medium");
+  watchForJob();
+  if (tg && tg.openTelegramLink) tg.openTelegramLink(link); else window.open(link, "_blank");
+}
+let watchTimer = null;
+function watchForJob() {
+  // после возврата из чата быстро подтягиваем прогресс
+  clearInterval(watchTimer);
+  let n = 0;
+  watchTimer = setInterval(() => { botPoll(); if (++n > 200) clearInterval(watchTimer); }, 3000);
 }
 
 /* ---------- избранное ---------- */
@@ -229,7 +233,7 @@ async function submitJob(kind) {
     } catch (e) { toast(e.message); }
   } else {
     sendData({ type: "job", ...p });
-    toast("Задание отправлено боту — следите за чатом");
+    toast("Нажмите «Старт» в чате с ботом: результаты появятся здесь");
   }
 }
 async function submitOne() {
@@ -242,7 +246,7 @@ async function submitOne() {
     feedItem(r); loadHistory();
   } else {
     sendData({ type: "single", username: u });
-    toast("Проверяю — ответ придёт в чат");
+    toast("Нажмите «Старт» в чате: результат появится здесь");
   }
 }
 async function submitFavCheck() {
@@ -253,7 +257,7 @@ async function submitFavCheck() {
     await submitJobByText(favs.map((f) => f.username), "избранное · " + favs.length);
   } else {
     sendData({ type: "job", mode: "favorites" });
-    toast("Отправил боту — следите за чатом");
+    toast("Нажмите «Старт» в чате: результаты появятся здесь");
   }
 }
 async function submitJobByText(items, label) {
@@ -299,10 +303,10 @@ async function init() {
 
   if (MODE === "bot") {
     $("#bot-note").hidden = false;
-    $("#bot-note").textContent = "Мини-апп внутри бота: задания отправляются боту, живой прогресс и результаты — в чате. Пауза/стоп — кнопками в чате, история обновляется здесь каждые 10 секунд.";
+    $("#bot-note").textContent = "Запуск: кнопка → чат с ботом → «Старт». Прогресс и результаты обновляются здесь автоматически.";
     $("#jobctrl").style.display = "none";
     botLoadFeed();
-    pollTimer = setInterval(botPoll, 10000);
+    pollTimer = setInterval(botPoll, 4000);
   } else {
     startSSE();
     loadHistory();

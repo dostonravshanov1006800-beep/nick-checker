@@ -5,6 +5,7 @@
 коммитятся в ветку data каждые 60 сек.
 """
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -13,9 +14,9 @@ import time
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import (CallbackQuery, KeyboardButton, Message,
-                           ReplyKeyboardMarkup, WebAppInfo)
+                           ReplyKeyboardMarkup, ReplyKeyboardRemove, WebAppInfo)
 
 from . import db, generators, queue, sync
 from .checker import Engine, STATUS_LABEL
@@ -56,7 +57,7 @@ BANNER = (
     "Шаблон: <code>ka??a</code> ( ? буква, # цифра, * любая ).\n"
     "Генератор: <code>/gen 6 произносимые 50</code>\n"
     "Авто-поиск: <code>/auto doston</code> — сам найду свободный и сохраню ⭐\n\n"
-    "👇 Или открой приложение кнопкой ниже."
+    "👇 Или открой приложение синей кнопкой слева от поля ввода."
 )
 
 
@@ -138,9 +139,43 @@ async def report_job(msg: Message, label: str):
 
 
 # ---------- обработчики ----------
+def expand_compact(d: dict) -> dict:
+    """Компактный payload из deep-link -> полный формат run_payload."""
+    if "t" not in d:
+        return d
+    out = {"type": d.get("t"), "mode": d.get("m")}
+    for short, full in (("u", "username"), ("b", "base"), ("p", "pattern"), ("l", "length"),
+                        ("s", "style"), ("n", "limit"), ("x", "text")):
+        if short in d:
+            out[full] = d[short]
+    if d.get("r"):
+        out["random"] = True
+    return out
+
+
+def decode_job(token: str) -> dict | None:
+    """j_<base64url(JSON)> из deep-link мини-аппа -> payload задания."""
+    try:
+        raw = token[2:] if token.startswith("j_") else token
+        raw += "=" * (-len(raw) % 4)
+        data = json.loads(base64.urlsafe_b64decode(raw.encode()).decode("utf-8"))
+        return expand_compact(data) if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
 @dp.message(CommandStart())
-async def cmd_start(msg: Message):
-    await msg.answer(BANNER, reply_markup=menu(msg.from_user.id))
+async def cmd_start(msg: Message, command: CommandObject):
+    arg = (command.args or "").strip()
+    if arg.startswith("j_"):
+        payload = decode_job(arg)
+        if payload:
+            await run_payload(msg, payload)
+            return
+        await msg.answer("⚠️ Не удалось прочитать задание из приложения. Откройте приложение и повторите.")
+        return
+    # убираем старую нижнюю клавиатуру у всех, кто её получал раньше
+    await msg.answer(BANNER, reply_markup=ReplyKeyboardRemove())
 
 
 @dp.message(Command("gen"))
@@ -280,6 +315,10 @@ async def on_web_app(msg: Message):
     except Exception:
         await msg.answer("⚠️ Не понял данные приложения.")
         return
+    await run_payload(msg, payload)
+
+
+async def run_payload(msg: Message, payload: dict):
     t = payload.get("type")
     if not engine_ok():
         await unavailable(msg)
@@ -374,13 +413,17 @@ async def on_text(msg: Message):
 
 
 # ---------- выгрузка для мини-аппа ----------
+_was_active = [False]
+
 async def sync_loop():
     """Каждые 60 сек: БД + состояние пользователя -> ветка data."""
     last = 0
     while True:
         try:
-            if time.time() - last > 60:
+            active = bool(cq and cq.job and cq.job.status in ("queued", "running", "paused", "flood"))
+            if time.time() - last > (8 if active else 60) or (not active and _was_active[0] and time.time() - last > 3):
                 last = time.time()
+                _was_active[0] = active
                 db.checkpoint()
                 files = {"heartbeat.json": json.dumps({"ts": int(time.time()), "engine": engine.available}, ensure_ascii=False)}
                 for uid in {u for (u,) in db.conn().execute("SELECT DISTINCT user_id FROM checks").fetchall()} | \
