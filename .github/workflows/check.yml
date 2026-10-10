@@ -1,0 +1,48 @@
+name: check
+on:
+  workflow_dispatch:
+    inputs:
+      username:
+        description: "Ник для разовой проверки"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      API_ID: ${{ secrets.API_ID }}
+      API_HASH: ${{ secrets.API_HASH }}
+      SESSION: ${{ secrets.SESSION }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -q telethon
+      - name: Check username
+        env:
+          USERNAME: ${{ inputs.username }}
+        run: |
+          python - <<'PY'
+          import asyncio, os, sys
+          sys.path.insert(0, ".")
+          from telethon import TelegramClient
+          from telethon.sessions import StringSession
+          from app.checker import Engine, STATUS_LABEL
+
+          async def main():
+              client = TelegramClient(StringSession(os.environ["SESSION"]),
+                                      int(os.environ["API_ID"]), os.environ["API_HASH"])
+              await client.connect()
+              eng = Engine(client)
+              res = await eng.check(os.environ["USERNAME"])
+              print(f"CHECK_RESULT: {res['username']} -> {res['status']} ({STATUS_LABEL[res['status']]})"
+                    + (f" owner={res['owner']}" if res.get("owner") else "")
+                    + (f" error={res['error']}" if res.get("error") else ""))
+              await client.disconnect()
+
+          asyncio.run(main())
+          PY
