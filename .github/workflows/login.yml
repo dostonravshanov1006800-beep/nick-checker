@@ -1,0 +1,99 @@
+name: login
+on:
+  workflow_dispatch:
+    inputs:
+      phone:
+        description: "Телефон в межд. формате"
+        required: true
+      code:
+        description: "Код из Telegram (для шага 2; шаг 1 — оставить пустым)"
+        required: false
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  login:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      API_ID: ${{ secrets.API_ID }}
+      API_HASH: ${{ secrets.API_HASH }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -q telethon
+
+      - name: Restore previous login state
+        id: state
+        run: |
+          mkdir -p /tmp/login
+          gh api "repos/${{ github.repository }}/actions/artifacts?name=login-state&per_page=1" \
+            --jq '.artifacts[0].id' > /tmp/artifact_id || true
+          if [ -s /tmp/artifact_id ] && [ "$(cat /tmp/artifact_id)" != "null" ]; then
+            gh api "repos/${{ github.repository }}/actions/artifacts/$(cat /tmp/artifact_id)/zip" > /tmp/login/state.zip
+            cd /tmp/login && unzip -o -q state.zip state.json && echo "state=found" >> "$GITHUB_OUTPUT"
+          else
+            echo "state=none" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Step 1 - send code (or Step 2 - verify)
+        run: |
+          python - <<'PY'
+          import asyncio, json, os, sys
+          from telethon import TelegramClient
+          from telethon.sessions import StringSession
+
+          api_id, api_hash = int(os.environ["API_ID"]), os.environ["API_HASH"]
+          phone = "${{ inputs.phone }}"
+          code = """${{ inputs.code }}""".strip()
+          state_file = "/tmp/login/state.json"
+
+          async def main():
+              state = None
+              if os.path.exists(state_file):
+                  state = json.load(open(state_file))
+              if not code:
+                  # ШАГ 1: отправка кода
+                  client = TelegramClient(StringSession(), api_id, api_hash)
+                  await client.connect()
+                  sent = await client.send_code_request(phone)
+                  json.dump({"session": StringSession.save(client.session),
+                             "phone_code_hash": sent.phone_code_hash},
+                            open(state_file, "w"))
+                  print(f"CODE_SENT: {sent.type}")
+                  await client.disconnect()
+              else:
+                  # ШАГ 2: подтверждение кода
+                  assert state, "нет состояния шага 1"
+                  client = TelegramClient(StringSession(state["session"]), api_id, api_hash)
+                  await client.connect()
+                  await client.sign_in(phone=phone, code=code,
+                                      phone_code_hash=state["phone_code_hash"])
+                  me = await client.get_me()
+                  open("/tmp/session.txt", "w").write(StringSession.save(client.session))
+                  print(f"LOGIN_OK: {getattr(me, 'first_name', '')} (@{getattr(me, 'username', '-')})")
+                  await client.disconnect()
+
+          asyncio.run(main())
+          PY
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: login-state
+          path: /tmp/login/state.json
+          retention-days: 1
+
+      - name: Upload session (only after successful login)
+        if: success() && inputs.code != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: session-out
+          path: /tmp/session.txt
+          retention-days: 1
