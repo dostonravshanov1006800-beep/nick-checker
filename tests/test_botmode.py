@@ -290,19 +290,24 @@ def test_hunt_letters_only_saves_and_lists():
 
 
 def test_hunt_generator_no_digits_no_underscores():
-    """Охота: только буквы (+ чуть «_»), без цифр, по возрастанию длины."""
+    """Охота: реальные английские слова, без цифр, строго по возрастанию длины."""
     from app import generators
     vs = list(generators.hunt_candidates(300))
     assert len(vs) == len(set(vs)) == 300
     assert all(not any(c.isdigit() for c in u) for u in vs), "только буквы!"
+    assert all(u.isalpha() for u in vs), "короткие - вообще без «_»"
     ls = [len(u) for u in vs]
-    assert all(ls[i] <= ls[i + 1] for i in range(len(ls) - 1)), "по возрастанию!"
-    assert 5 <= min(ls) and vs[0] == "amber"                  # с самых коротких
-    big = list(generators.hunt_candidates(4000))
-    assert any("_" in u for u in big), "варианты с «_» должны быть"
-    assert all(all(c.isalpha() or c == "_" for c in u) for u in big)
-    # исключение проверенных двигает охоту к длинным именам
-    ex = set(vs)
+    assert all(l == 5 for l in ls), "охота начинается со ВСЕХ 5-буквенных"
+    big = list(generators.hunt_candidates(100000))          # заявленная ёмкость
+    assert len(big) == len(set(big)) == 100000
+    bls = [len(u) for u in big]
+    assert all(bls[i] <= bls[i + 1] for i in range(len(bls) - 1)), "по возрастанию!"
+    assert all(5 <= l <= 12 for l in bls)
+    full = list(generators.hunt_candidates(10**9))          # весь пул
+    assert len(full) > 300000 and any("_" in u for u in full)
+    assert len(set(full)) == len(full)
+    # исключение проверенных двигает охоту вперёд
+    ex = set(big)
     vs2 = list(generators.hunt_candidates(300, exclude=ex))
     assert not (set(vs2) & ex), "не должен повторять проверенное"
     assert len(vs2) == 300

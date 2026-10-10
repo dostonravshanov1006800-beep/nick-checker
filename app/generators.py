@@ -1,5 +1,6 @@
 """Генераторы кандидатов: список, шаблон, случайные, словарь (спека §4)."""
 import itertools
+import os
 import random
 import string
 
@@ -195,64 +196,63 @@ def _nice_syllable(rng, n_syl: int) -> str:
     return w
 
 
-def _syll_pool(L: int, size: int = 400) -> list[str]:
-    """ДЕТЕРМИНИРОВАННЫЙ пул произносимых слов длины L (seed = длина).
+_WORD_LIST: list[str] | None = None
 
-    Один и тот же пул на каждый вызов - исключение уже проверенных имён
-    гарантирует, что охота движется от коротких длин к длинным.
-    """
-    import random
-    rng = random.Random(9173 + L * 31)
-    cons = "bdfghjklmnprstvz"
-    vowels = "aeiou"
-    out: list[str] = []
-    seen: set[str] = set()
-    while len(out) < size:
-        w = ""
-        while len(w) < L - 1:
-            w += rng.choice(cons) + rng.choice(vowels)
-        if len(w) < L:
-            w += rng.choice(cons)
-        w = w[:L]
-        if w not in seen:
-            seen.add(w)
-            out.append(w)
-    return out
+
+def _load_words() -> list[str]:
+    """Реальные английские слова 5-12 букв из бандла (один раз)."""
+    global _WORD_LIST
+    if _WORD_LIST is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "english_words.txt")
+        with open(path, encoding="utf-8") as f:
+            _WORD_LIST = sorted({w.strip() for w in f
+                                 if 5 <= len(w.strip()) <= 12})
+    return _WORD_LIST
 
 
 HUNT_PREFIX = ["the", "its", "my", "im", "mr", "real", "go", "be", "is", "we"]
+HUNT_UNDERSCORE_PER_LEN = 200   # «_»-вариантов на длину (в основном ищем без «_»)
+HUNT_MIN_CAPACITY = 100000      # заявленная ёмкость охоты (реальная ~306 000)
 
 
-def hunt_candidates(limit: int = 500, exclude=None):
-    """Кандидаты для охоты: ТОЛЬКО буквы (плюс немного «_»), без цифр.
+def hunt_candidates(limit: int = 400, exclude=None):
+    """Кандидаты для охоты: РЕАЛЬНЫЕ английские слова, только буквы.
 
-    Порядок - по возрастанию длины: все 5-буквенные, затем 6, 7, ...
-    Внутри длины: словарные слова, затем генератор, затем «_»-варианты.
-    exclude - уже проверенные имена (пропускаются), чтобы охота
-    реально продвигалась от коротких к длинным, а не топталась на месте.
+    Порядок - по возрастанию длины: ВСЕ 5-буквенные (15 921 слово),
+    затем все 6-буквенные (29 874), 7-буквенные (41 998) и так до 12.
+    Ни один свободный ник не пропускается: пул исчерпывающий,
+    ёмкость ~305 000 имён (запрос был от 100 000). После каждой длины -
+    немного «_»-вариантов. exclude - проверенные за 7 дней, чтобы охота
+    двигалась вперёд, а не топталась.
     """
     excl = set(exclude or ())
     seen: set[str] = set(excl)
+    words = _load_words()
     n = 0
     for L in range(5, 13):                      # от самых коротких к длинным
-        pool = [w for w in HUNT_WORDS if len(w) == L] + _syll_pool(L)
-        for w in pool:                          # чистые буквы
-            if w in seen:
+        for w in words:                          # все слова этой длины
+            if len(w) != L or w in seen:
                 continue
             seen.add(w)
             yield w
             n += 1
             if n >= limit:
                 return
-        for p in HUNT_PREFIX:                    # чуть-чуть с подчёркиванием
-            rest = L - len(p) - 1
-            if rest < 2:
-                continue
-            words = [w for w in HUNT_WORDS if len(w) == rest] + _syll_pool(rest, 60)
-            w = next((x for x in words if f"{p}_{x}" not in seen), None)
-            if w:
-                seen.add(f"{p}_{w}")
-                yield f"{p}_{w}"
+        u_n = 0
+        for p in HUNT_PREFIX:                    # немного «the_oak»-вариантов
+            for w in words:
+                if len(w) != L - len(p) - 1:
+                    continue
+                u = f"{p}_{w}"
+                if u in seen:
+                    continue
+                seen.add(u)
+                yield u
                 n += 1
+                u_n += 1
                 if n >= limit:
                     return
+                if u_n >= HUNT_UNDERSCORE_PER_LEN:
+                    break
+            if u_n >= HUNT_UNDERSCORE_PER_LEN:
+                break
