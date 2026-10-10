@@ -225,3 +225,14 @@ def test_auto_stop_first_keeps_result_in_feed():
     j = botmode.cq.job
     assert j.done < 25 and j.counts["free"] == 1
     assert j.last_results[-1]["status"] == "free"     # найденный ник виден в ленте
+
+
+def test_auto_variants_letters_only():
+    """Авто-поиск: варианты только из букв и «_», никаких цифр и leet-подмен."""
+    from app import generators
+    for base in ("doston", "dostonxoja", "abc", "ka"):
+        for v in generators.auto_variants(base, 5000):
+            assert not any(c.isdigit() for c in v), f"цифра в варианте {v!r}"
+    assert "d0570n" not in list(generators.auto_variants("doston", 5000))
+    vs = list(generators.auto_variants("doston", 40))
+    assert vs[0] == "doston" and len(vs) == 40

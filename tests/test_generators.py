@@ -56,7 +56,8 @@ def test_auto_variants_order_and_dedup():
     assert v[0] == "doston"                     # точный ник первым
     assert len(v) == len(set(v))                # без дубликатов
     assert all(len(u) >= 5 for u in v)          # валидные длины
-    assert "doston1" in v[:5]                   # ближайшая мутация рано
+    assert "dostonn" in v[:5]                   # ближайшая мутация рано
+    assert not any(c.isdigit() for u in v for c in u)   # только буквы и «_»
 
 
 def test_auto_variants_limit():
