@@ -188,12 +188,13 @@ class CheckQueue:
                     job.free_recent.append(r["username"])
                     if job.auto_save:
                         db.add_favorite(job.user_id, r["username"])
-                    if job.stop_on_free:
-                        job.status = "done"
-                        job.note = f"🟢 найден свободный @{r['username']}"
-                        pending = None
-                        break
                 job.last_results.append({k: r.get(k) for k in ("username", "status", "error", "owner")})
+                if r["status"] == "free" and job.stop_on_free:
+                    job.status = "done"
+                    job.note = f"🟢 найден свободный @{r['username']}"
+                    await self._publish({"type": "result", "result": r, "job": job.snapshot()})
+                    pending = None
+                    break
                 await self._publish({"type": "result", "result": r, "job": job.snapshot()})
                 if job.total_hint and job.done >= job.total_hint:
                     job.status = "done"

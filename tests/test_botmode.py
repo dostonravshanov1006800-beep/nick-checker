@@ -89,10 +89,10 @@ def test_deeplink_auto_finds_free():
         await botmode.cmd_start(m, _cmd(_link({"t": "job", "m": "auto", "b": "freeabc", "n": 5})))
         for _ in range(60):
             await asyncio.sleep(0.2)
-            if any("Найден свободный" in r for r in m.replies):
+            if any("Свободных найдено" in r for r in m.replies):
                 break
     asyncio.run(go())
-    assert any("Найден свободный" in r for r in m.replies)
+    assert any("Свободных найдено" in r for r in m.replies)
 
 
 def test_deeplink_list_compact():
@@ -193,3 +193,35 @@ def test_auto_search_stops_and_saves():
     assert "free_nick" in [f["username"] for f in db.favorites(42)]
     # после свободного ник не перебирает дальше
     assert job.done == 3
+
+
+def test_auto_checks_all_variants_by_default():
+    """Авто-поиск без «стоп на первом» проверяет все варианты и собирает все свободные."""
+    m = FakeMsg("/auto freeabc 25")
+    async def go():
+        await botmode.cq.start()
+        await botmode.run_auto(m, "freeabc", limit=25, delay=0.3)
+        for _ in range(150):
+            await asyncio.sleep(0.2)
+            if botmode.cq.job and botmode.cq.job.status == "done":
+                break
+    asyncio.run(go())
+    j = botmode.cq.job
+    assert j.status == "done" and j.done == 25
+    assert j.counts["free"] > 1                       # собраны все свободные, не только первый
+    assert len(j.last_results) == 25                  # каждый результат попал в ленту аппа
+
+
+def test_auto_stop_first_keeps_result_in_feed():
+    m = FakeMsg("/auto freeabc first")
+    async def go():
+        await botmode.cq.start()
+        await botmode.run_auto(m, "freeabc", limit=25, delay=0.3, stop_first=True)
+        for _ in range(100):
+            await asyncio.sleep(0.2)
+            if botmode.cq.job and botmode.cq.job.status == "done":
+                break
+    asyncio.run(go())
+    j = botmode.cq.job
+    assert j.done < 25 and j.counts["free"] == 1
+    assert j.last_results[-1]["status"] == "free"     # найденный ник виден в ленте

@@ -153,6 +153,7 @@ function compactPayload(p) {
   if (p.limit) c.n = p.limit;
   if (p.text) c.x = p.text;
   if (p.random) c.r = 1;
+  if (p.stop_first) c.f = 1;
   return c;
 }
 function sendData(payload) {
@@ -217,7 +218,7 @@ function readJobParams(kind) {
   if (kind === "pattern") return { mode: "pattern", pattern: $("#in-pattern").value.trim().toLowerCase(), delay: delay("#in-delay-pat"), limit: +$("#in-limit-pat").value, random: $("#in-rand").checked };
   if (kind === "gen") return { mode: "random", length: +$("#in-len").value, style: $("#in-style").value, delay: delay("#in-delay-gen"), limit: +$("#in-limit-gen").value };
   if (kind === "dict") return { mode: "dictionary", text: $("#in-dict").value, delay: delay("#in-delay-dict"), limit: +$("#in-limit-dict").value };
-  if (kind === "auto") return { mode: "auto", base: $("#in-auto").value.trim().toLowerCase(), delay: delay("#in-delay-auto"), limit: +$("#in-limit-auto").value };
+  if (kind === "auto") return { mode: "auto", base: $("#in-auto").value.trim().toLowerCase(), delay: delay("#in-delay-auto"), limit: Math.min(5000, Math.max(1, parseInt($("#in-limit-auto").value, 10) || 40)), stop_first: $("#in-first").checked };
 }
 async function submitJob(kind) {
   haptic("medium");

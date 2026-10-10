@@ -145,7 +145,7 @@ def expand_compact(d: dict) -> dict:
         return d
     out = {"type": d.get("t"), "mode": d.get("m")}
     for short, full in (("u", "username"), ("b", "base"), ("p", "pattern"), ("l", "length"),
-                        ("s", "style"), ("n", "limit"), ("x", "text")):
+                        ("s", "style"), ("n", "limit"), ("x", "text"), ("f", "stop_first")):
         if short in d:
             out[full] = d[short]
     if d.get("r"):
@@ -216,7 +216,7 @@ async def cmd_auto(msg: Message):
     limit = 40
     if len(parts) > 2 and parts[2].isdigit():
         limit = min(5000, max(1, int(parts[2])))
-    await run_auto(msg, base, limit=limit, delay=1.5)
+    await run_auto(msg, base, limit=limit, delay=1.5, stop_first="first" in (msg.text or "").lower())
 
 
 @dp.message(Command("stop"))
@@ -254,7 +254,7 @@ async def btn_fav(msg: Message):
     asyncio.create_task(progress_updater(msg.chat.id))
 
 
-async def run_auto(msg: Message, base: str, limit: int = 40, delay: float = 1.5):
+async def run_auto(msg: Message, base: str, limit: int = 40, delay: float = 1.5, stop_first: bool = False):
     from . import rules as _r
     b = _r.normalize(base)
     ok, why = _r.validate(b)
@@ -268,7 +268,7 @@ async def run_auto(msg: Message, base: str, limit: int = 40, delay: float = 1.5)
         return
     await report_job(msg, f"авто-поиск · {b} · {len(items)} вариантов")
     job = await cq.submit(msg.from_user.id, items, f"авто-поиск · {b}", delay,
-                         len(items), stop_on_free=True, auto_save=True)
+                         len(items), stop_on_free=stop_first, auto_save=True)
     asyncio.create_task(progress_updater(msg.chat.id))
     asyncio.create_task(auto_watcher(msg, job, len(items)))
 
@@ -280,12 +280,13 @@ async def auto_watcher(msg: Message, job, total: int):
     if job.status == "stopped":
         return  # прогресс-сообщение уже сказало всё
     if job.free_recent:
-        u = job.free_recent[-1]
+        free = list(dict.fromkeys(job.free_recent))
+        lst = "\n".join(f"• @{x}" for x in free[:30])
         await msg.answer(
-            f"🟢 <b>Найден свободный: @{u}</b>\n"
-            f"⭐ Уже сохранён в избранное.\n"
-            f"Проверено вариантов: {job.done}",
-            reply_markup=fav_kb(u))
+            f"🟢 <b>Свободных найдено: {len(free)}</b>\n{lst}\n\n"
+            f"⭐ Все сохранены в избранное.\n"
+            f"Проверено вариантов: {job.done} из {total}",
+            reply_markup=fav_kb(free[0]))
     else:
         await msg.answer(
             f"🔴 Свободных не нашёл: перебрал {job.done} вариантов вокруг ника.\n"
@@ -340,8 +341,8 @@ async def run_payload(msg: Message, payload: dict):
                                                   random_order=bool(payload.get("random")))
             label, total = f"шаблон {payload.get('pattern', '')}", None
         elif mode == "auto":
-            await run_auto(msg, payload.get("base", ""), limit=payload.get("limit") or 40,
-                           delay=delay)
+            await run_auto(msg, payload.get("base", ""), limit=min(5000, max(1, int(payload.get("limit") or 40))),
+                           delay=delay, stop_first=bool(payload.get("stop_first")))
             return
         elif mode == "random":
             items = generators.random_candidates(int(payload.get("length", 6)),
