@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 from . import auth, checker, db, generators, queue
 
-STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+STATIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")
 LOCAL_USER = 0  # в локальном режиме один пользователь
 
 app = FastAPI(title="Nick Checker", docs=None, redoc_url=None)

@@ -70,7 +70,7 @@ app/
   auth.py       # пароль + cookie (локальный режим)
   botmode.py    # бот (Actions) + выгрузка данных для мини-аппа
   sync.py       # ветка data: бэкап БД + JSON для Pages
-  static/       # мини-апп (один UI для обоих режимов)
+docs/         # мини-апп — один UI для обоих режимов (GitHub Pages и локальный сервер)
 login.py        # разовый вход
 run.sh / run.bat
 ```
