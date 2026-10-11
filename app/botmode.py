@@ -288,7 +288,8 @@ async def hunt_start(msg: Message):
         f"Партия {batch + 1}: ~{HUNT_BATCH} вариантов, примерно {eta} мин.\n"
         f"Проверено всего будет ~{total_all}, свободные сохраняются в ⭐ автоматически.\n\n"
         f"Можешь закрыть чат - охота идёт сама. Списки находок буду присылать сюда.\n"
-        f"Если Telegram попросит подождать (флуд) - встану на паузу и продолжу сам.\n"
+        f"Если MTProto словит бан - перейду на веб-проверки (t.me + Fragment),\n"
+        f"поиск не остановится. Баны пережидаю автоматически.\n"
         f"Остановить: <code>/hunt off</code>")
     await _hunt_run(msg, batch + 1)
 
@@ -596,7 +597,7 @@ async def run():
     from .checker import Engine as E
     from .main import _connect_engine
     engine = E(await _connect_engine())
-    cq = queue.CheckQueue(engine)
+    cq = queue.CheckQueue(engine, web_engine=webcheck.WebEngine())
     await cq.start()
     if BOT_TOKEN:
         # синяя кнопка мини-аппа слева в поле ввода (открывает приложение)

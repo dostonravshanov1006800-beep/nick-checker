@@ -4,7 +4,7 @@ import time
 
 from telethon import errors
 
-from . import checker, db, rules
+from . import checker, db, rules, webcheck
 
 NET_RETRIES = 3
 FLOOD_MARGIN = 60          # запас к паузе, который просит Telegram
@@ -50,8 +50,10 @@ class Job:
 class CheckQueue:
     """Единственная очередь на процесс. Подписчики получают события (SSE/бот)."""
 
-    def __init__(self, engine: checker.Engine):
+    def __init__(self, engine: checker.Engine, web_engine: webcheck.WebEngine | None = None):
         self.engine = engine
+        self.web_engine = web_engine    # веб-фолбэк на время MTProto-бана
+        self.web_until = 0.0             # до какого момента идём через веб
         self.job: Job | None = None
         self.delay_factor = 1.0     # адаптивное замедление: растёт после каждого флуда
         self._subscribers: list[asyncio.Queue] = []
@@ -126,6 +128,8 @@ class CheckQueue:
 
     async def _check(self, user_id: int, username: str) -> dict:
         """Реальная проверка: FloodWait прокидывается, сеть — до 3 повторов."""
+        if self.web_engine is not None and time.time() < self.web_until:
+            return await self.web_engine.check(username)
         last_reason = "сетевая ошибка"
         for attempt in range(NET_RETRIES):
             try:
@@ -134,7 +138,17 @@ class CheckQueue:
                 return {"username": rules.normalize(username), "status": checker.ERROR,
                         "error": "аккаунт-проверяльщик не привязан — нужен вход (python login.py)",
                         "owner": None}
-            except errors.FloodWaitError:
+            except errors.FloodWaitError as e:
+                # MTProto в бане: НЕ останавливаемся - уходим в веб
+                # (t.me + Fragment) до конца бана и продолжаем проверять
+                if self.web_engine is not None:
+                    self.web_until = time.time() + e.seconds + FLOOD_MARGIN
+                    self.delay_factor = min(MAX_DELAY_FACTOR, self.delay_factor * 1.5)
+                    if self.job:
+                        self.job.note = (f"MTProto-бан {e.seconds // 60} мин — "
+                                          f"проверяю через веб (t.me + Fragment)")
+                        await self._publish({"type": "job", "job": self.job.snapshot()})
+                    return await self.web_engine.check(username)
                 raise
             except Exception as e:
                 last_reason = getattr(e, "message", None) or type(e).__name__

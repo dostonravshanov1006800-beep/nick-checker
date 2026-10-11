@@ -128,3 +128,82 @@ def test_queue_control():
         return q.job.snapshot()
     snap = asyncio.run(go())
     assert snap["status"] == "stopped" and snap["done"] <= 1
+
+
+# --- веб-движок (t.me + Fragment) ---
+
+def test_web_engine_classifies():
+    from app import webcheck
+
+    class T:
+        def __init__(self, pages): self.pages, self.calls = pages, []
+        async def __call__(self, url):
+            self.calls.append(url)
+            for pat, body in self.pages.items():
+                if pat in url: return body
+            raise AssertionError(url)
+
+    taken_html = "<div class='tgme_page_photo'></div><div class='tgme_page_title'>X</div>"
+    icon_html = "<div class='tgme_page_icon'><i class='tgme_icon_user'></i></div>"
+    frag_html = "<label for='bid_value'>Minimum bid</label>"
+    stub_html = "<html>ник не найден</html>"
+
+    async def go():
+        e = webcheck.WebEngine(transport=T({"t.me/durov": taken_html}))
+        r = await e.check("durov")
+        assert r["status"] == "taken" and r["source"] == "web"
+        assert len(e._transport.calls) == 1, "занятый - fragment не нужен"
+
+        e = webcheck.WebEngine(transport=T({"t.me/nike": icon_html,
+                                            "fragment.com/username/nike": frag_html}))
+        assert (await e.check("nike"))["status"] == "taken", "коллекционный ник занят"
+
+        e = webcheck.WebEngine(transport=T({"t.me/": icon_html,
+                                            "fragment.com/": stub_html}))
+        r = await e.check("freeeee")
+        assert r["status"] == "free" and r["source"] == "web"
+        assert (await e.check("@Freeeee"))["status"] == "free", "нормализация @"
+
+        class Boom:
+            async def __call__(self, url): raise OSError("сеть")
+        e = webcheck.WebEngine(transport=Boom())
+        r = await e.check("x")
+        assert r["status"] == "error" and "веб" in r["error"]
+    asyncio.run(go())
+
+
+def test_queue_flood_switches_to_web_and_continues():
+    """MTProto-бан не останавливает очередь: проверка уходит в веб."""
+    from app import webcheck
+
+    class Floody:
+        def __init__(self): self.calls = 0
+        async def __call__(self, req):
+            self.calls += 1
+            raise errors.FloodWaitError(request=None, capture=3600)
+
+    class Web:
+        def __init__(self): self.calls = 0
+        async def check(self, name):
+            self.calls += 1
+            return {"username": name, "status": "free", "error": None,
+                    "owner": None, "source": "web"}
+
+    e = checker.Engine(Floody())
+    w = Web()
+    q = CheckQueue(e, web_engine=w)
+
+    async def go():
+        await q.start()
+        await q.submit(1, ["alpha", "bravo"], "тест", delay=0.01, total=2)
+        for _ in range(400):
+            if q.job and q.job.status == "done":
+                break
+            await asyncio.sleep(0.02)
+        snap = q.job.snapshot()
+        assert snap["done"] == 2, "очередь должна была дойти до конца через веб"
+        assert snap["counts"]["free"] == 2
+        assert w.calls == 2 and e.client.calls >= 1, "первый флуд, дальше веб"
+        assert "веб" in snap["note"], "юзер должен видеть причину переключения"
+        assert q.delay_factor == 1.5
+    asyncio.run(go())
