@@ -573,7 +573,13 @@ async def sync_loop():
                 last = time.time()
                 _was_active[0] = active
                 db.checkpoint()
-                files = {"heartbeat.json": json.dumps({"ts": int(time.time()), "engine": engine.available}, ensure_ascii=False)}
+                hb = {"ts": int(time.time()),
+                      "engine": bool(engine) and engine.available,
+                      "job": cq.job.label if cq.job else None,
+                      "job_status": cq.job.status if cq.job else None,
+                      "web_mode": bool(cq.job) and time.time() < cq.web_until,
+                      "web_until": int(max(0, cq.web_until - time.time()))}
+                files = {"heartbeat.json": json.dumps(hb, ensure_ascii=False)}
                 for uid in {u for (u,) in db.conn().execute("SELECT DISTINCT user_id FROM checks").fetchall()} | \
                          {u for (u,) in db.conn().execute("SELECT DISTINCT user_id FROM favorites").fetchall()}:
                     j = cq.job if (cq.job and cq.job.user_id == uid) else None
@@ -619,18 +625,20 @@ async def run():
         except Exception:
             pass
         asyncio.create_task(sync_loop())
-        for st in db.hunt_all():
-            try:
-                uid = st["user_id"]
-                class _M:
-                    class chat:
-                        id = uid
-                    class from_user:
-                        id = uid
-                    async def answer(self, text, **kw):
-                        return await bot.send_message(uid, text, **kw)
-                await bot.send_message(uid, f"🆓 Охота продолжается после перезапуска (партия {st['batch'] + 1}).")
-                await _hunt_run(_M(), st["batch"] + 1)
-            except Exception:
-                log.exception("hunt resume failed for %s", st["user_id"])
+        async def _resume_hunt():
+            for st in db.hunt_all():
+                try:
+                    uid = st["user_id"]
+                    class _M:
+                        class chat:
+                            id = uid
+                        class from_user:
+                            id = uid
+                        async def answer(self, text, **kw):
+                            return await bot.send_message(uid, text, **kw)
+                    await bot.send_message(uid, f"🆓 Охота продолжается после перезапуска (партия {st['batch'] + 1}).")
+                    await _hunt_run(_M(), st["batch"] + 1)
+                except Exception:
+                    log.exception("hunt resume failed for %s", st["user_id"])
+        asyncio.create_task(_resume_hunt())
         await dp.start_polling(bot)

@@ -19,13 +19,25 @@ def _git(*args, cwd=OUT):
 
 
 def _init():
+    """Локальное зеркало data-ветки: сначала фетчим существующее
+    дерево, чтобы пуши НИКОГДА не стирали файлы предыдущих пушей
+    (инцидент: Final backup затёр heartbeat/users одним db/)."""
     os.makedirs(OUT, exist_ok=True)
     if not os.path.isdir(os.path.join(OUT, ".git")):
         _git("init", "-q", "-b", "data")
         _git("remote", "add", "origin", URL)
-        if _git("config", "user.name").returncode != 0:
-            _git("config", "user.name", "checker")
-            _git("config", "user.email", "checker@users.noreply.github.com")
+        _git("config", "user.name", "checker")
+        _git("config", "user.email", "checker@users.noreply.github.com")
+        # подложить текущее дерево ветки, если она уже есть
+        if _git("fetch", "-q", "--depth", "1", "origin", "data").returncode == 0:
+            _git("reset", "-q", "--hard", "FETCH_HEAD")
+            # повторный fetch - force-push мог прилететь между шагами
+            _git("fetch", "-q", "--depth", "1", "origin", "data")
+            _git("reset", "-q", "--hard", "FETCH_HEAD")
+    else:
+        # зеркало уже есть - подтянуть актуальное (защита от -f пушей)
+        _git("fetch", "-q", "--depth", "1", "origin", "data")
+        _git("reset", "-q", "--hard", "FETCH_HEAD")
 
 
 def push_payload(files: dict, root: str = ""):
