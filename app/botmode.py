@@ -56,7 +56,8 @@ BANNER = (
     "Или пришли сразу список: <code>nick1, nick2, nick3</code>.\n"
     "Шаблон: <code>ka??a</code> ( ? буква, # цифра, * любая ).\n"
     "Генератор: <code>/gen 6 произносимые 50</code>\n"
-    "Авто-поиск: <code>/auto doston</code> — сам найду свободный и сохраню ⭐\n\n"
+    "Авто-поиск: <code>/auto doston</code> — сам найду свободный и сохраню ⭐\n"
+    "Фрагмент: <code>/frag dost 200</code> — свободные ники, содержащие кусок\n\n"
     "👇 Или открой приложение синей кнопкой слева от поля ввода."
 )
 
@@ -219,6 +220,39 @@ async def cmd_auto(msg: Message):
     await run_auto(msg, base, limit=limit, delay=1.5, stop_first="first" in (msg.text or "").lower())
 
 
+@dp.message(Command("frag"))
+async def cmd_frag(msg: Message):
+    parts = (msg.text or "").split()
+    if len(parts) < 2:
+        await msg.answer("Формат: <code>/frag dost 200</code> — переберу ники, содержащие фрагмент, найду свободные и сохраню в избранное.")
+        return
+    if not engine_ok():
+        await unavailable(msg)
+        return
+    limit = 200
+    if len(parts) > 2 and parts[2].isdigit():
+        limit = min(5000, max(1, int(parts[2])))
+    await run_frag(msg, parts[1], limit=limit)
+
+
+async def run_frag(msg: Message, frag: str, limit: int = 200, delay: float = 1.5):
+    from . import rules as _r
+    f = _r.normalize(frag)
+    if len(f) < 2 or not all(c in "abcdefghijklmnopqrstuvwxyz_" for c in f):
+        await msg.answer("⚠️ Фрагмент: 2+ символа, только a-z и _")
+        return
+    limit = min(5000, max(1, int(limit)))
+    items = list(generators.fragment_candidates(f, limit))
+    if not items:
+        await msg.answer("⚠️ Не удалось построить варианты.")
+        return
+    await report_job(msg, f"фрагмент · {f} · {len(items)} вариантов")
+    job = await cq.submit(msg.from_user.id, items, f"фрагмент · {f}", delay,
+                         len(items), auto_save=True)
+    asyncio.create_task(progress_updater(msg.chat.id))
+    asyncio.create_task(auto_watcher(msg, job, len(items), kind="frag"))
+
+
 HUNT_BATCH = 400          # вариантов за партию
 HUNT_DELAY = 3.0          # пауза между проверками (× jitter 1.0-1.8 → 3-5.4 сек)
 _hunt_report: dict[int, dict] = {}   # uid -> {found, ts, reported}
@@ -376,8 +410,8 @@ async def run_auto(msg: Message, base: str, limit: int = 40, delay: float = 1.5,
     asyncio.create_task(auto_watcher(msg, job, len(items)))
 
 
-async def auto_watcher(msg: Message, job, total: int):
-    """Ждёт конца авто-поиска и присылает итог отдельным сообщением."""
+async def auto_watcher(msg: Message, job, total: int, kind: str = "auto"):
+    """Ждёт конца авто/фрагмент-поиска и присылает итог отдельным сообщением."""
     while job.status in ("queued", "running", "paused", "flood"):
         await asyncio.sleep(2)
     if job.status == "stopped":
@@ -391,9 +425,14 @@ async def auto_watcher(msg: Message, job, total: int):
             f"Проверено вариантов: {job.done} из {total}",
             reply_markup=fav_kb(free[0]))
     else:
-        await msg.answer(
-            f"🔴 Свободных не нашёл: перебрал {job.done} вариантов вокруг ника.\n"
-            "Попробуй другую основу или увеличь лимит: <code>/auto doston 100</code>")
+        if kind == "frag":
+            await msg.answer(
+                f"🔴 Свободных не нашёл: перебрал {job.done} вариантов с фрагментом.\n"
+                "Попробуй другой/длиннее фрагмент или увеличь лимит: <code>/frag dost 400</code>")
+        else:
+            await msg.answer(
+                f"🔴 Свободных не нашёл: перебрал {job.done} вариантов вокруг ника.\n"
+                "Попробуй другую основу или увеличь лимит: <code>/auto doston 100</code>")
 
 
 def is_pattern(t: str) -> bool:
@@ -446,6 +485,10 @@ async def run_payload(msg: Message, payload: dict):
         elif mode == "auto":
             await run_auto(msg, payload.get("base", ""), limit=min(5000, max(1, int(payload.get("limit") or 40))),
                            delay=delay, stop_first=bool(payload.get("stop_first")))
+            return
+        elif mode == "frag":
+            await run_frag(msg, payload.get("text", ""), limit=min(5000, max(1, int(payload.get("limit") or 200))),
+                           delay=delay)
             return
         elif mode == "random":
             items = generators.random_candidates(int(payload.get("length", 6)),

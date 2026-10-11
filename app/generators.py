@@ -256,3 +256,54 @@ def hunt_candidates(limit: int = 400, exclude=None):
                     break
             if u_n >= HUNT_UNDERSCORE_PER_LEN:
                 break
+
+
+# ---------- поиск по фрагменту: ники, СОДЕРЖАЩИЕ подстроку ----------
+FRAG_MIN = 2  # сам фрагмент может быть короче ника; кандидаты ≥5 по правилам
+
+
+def fragment_candidates(frag: str, limit: int = 200, exclude=None):
+    """Кандидаты, содержащие фрагмент: только буквы и «_», всё валидируется.
+
+    Порядок — от «красивых» к добору:
+      1) сам фрагмент / фрагмент_ (если проходят правила),
+      2) префиксы+суффиксы вокруг фрагмента (thedost, dosthub, its_dost…),
+      3) реальные английские слова, содержащие фрагмент (короткие первыми),
+      4) добор: фрагмент + случайные буквы до лимита.
+    exclude — уже проверенные (не повторяем).
+    """
+    f = rules.normalize(frag)
+    if len(f) < FRAG_MIN or not all(c in "abcdefghijklmnopqrstuvwxyz_" for c in f):
+        return
+    limit = max(1, min(5000, int(limit)))
+    excl = set(exclude or ())
+    seen: set[str] = set(excl)
+    queue: list[str] = []
+
+    def push(w: str):
+        if w not in seen:
+            seen.add(w)
+            queue.append(w)
+
+    push(f)                                    # 1) сам фрагмент
+    push(f"{f}_")
+    for p in PREFIX + HUNT_PREFIX:              # 2) префиксы
+        push(f"{p}{f}"), push(f"{p}_{f}")
+    for s in SUFFIX:                            #    суффиксы
+        push(f"{f}{s}"), push(f"{f}_{s}")
+    for w in sorted((w for w in _load_words() if f in w),  # 3) слова с фрагментом
+                    key=lambda w: (len(w), w)):
+        push(w)
+    while len(queue) < limit:                   # 4) фрагмент + буквы
+        tail = "".join(random.choice(string.ascii_lowercase) for _ in range(3))
+        push(f"{f}{tail}")
+        if len(seen) > limit + 50_000:          # защита от зацикливания
+            break
+    n = 0
+    for w in queue:
+        ok, _ = rules.validate(w)
+        if ok:
+            yield w
+            n += 1
+            if n >= limit:
+                return

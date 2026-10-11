@@ -29,6 +29,7 @@
       <button data-m="pattern">Шаблон</button>
       <button data-m="gen">Генератор</button>
       <button data-m="auto">Авто</button>
+      <button data-m="frag">Фрагмент</button>
       <button data-m="dict">Словарь</button>
       <button data-m="hunt">🆓 Охота</button>
     </div>
@@ -119,6 +120,23 @@ user123
         <label><input type="checkbox" id="in-first"> Остановиться на первом свободном</label>
       </div>
       <button class="btn" id="btn-auto">🔍 Авто поиск</button>
+    </div>
+
+    <div class="card" id="form-frag" hidden>
+      <label>Фрагмент (кусочек ника)</label>
+      <input type="text" id="in-frag" placeholder="например: dost" autocapitalize="off" autocomplete="off">
+      <div class="hint">Найдём <b>свободные</b> ники, содержащие этот кусок: <code>thedost</code>, <code>dosthub</code>, <code>its_dost</code>, словарные слова… Результаты — в ⭐ избранное.</div>
+      <div class="row">
+        <div>
+          <label>Максимум вариантов</label>
+          <input type="number" id="in-limit-frag" value="200" min="1" max="5000">
+        </div>
+        <div>
+          <label>Пауза, сек</label>
+          <input type="number" id="in-delay-frag" value="1.5" min="0.5" step="0.5">
+        </div>
+      </div>
+      <button class="btn" id="btn-frag">🔍 Поиск по фрагменту</button>
     </div>
 
     <div class="card" id="form-dict" hidden>

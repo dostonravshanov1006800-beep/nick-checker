@@ -68,3 +68,28 @@ def test_auto_variants_limit():
 def test_auto_variants_invalid_base():
     from app.generators import auto_variants
     assert list(auto_variants("", 10)) == []
+
+
+def test_fragment_contains_and_valid():
+    cands = list(generators.fragment_candidates("dost", 50))
+    assert cands, "фрагмент должен давать кандидатов"
+    assert all("dost" in c for c in cands)
+    assert all(rules.validate(c)[0] for c in cands)
+    assert len(cands) == len(set(cands))          # без дублей
+
+
+def test_fragment_limit_and_order():
+    cands = list(generators.fragment_candidates("quar", 10))
+    assert len(cands) == 10
+    assert cands[0] == "thequar"                  # красивые комбинации первыми
+
+
+def test_fragment_rejects_bad_input():
+    assert list(generators.fragment_candidates("d", 10)) == []      # <2 символов
+    assert list(generators.fragment_candidates("d1!", 10)) == []   # не a-z/_
+
+
+def test_fragment_short_frag_makes_valid_nicks():
+    # сам фрагмент короче 5 — кандидаты всё равно валидны
+    cands = list(generators.fragment_candidates("go", 20))
+    assert all(len(c) >= 5 for c in cands)

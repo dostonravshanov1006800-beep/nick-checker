@@ -158,6 +158,10 @@ async def create_job(request: Request):
         items = generators.dictionary_candidates(generators.parse_list(body.get("text", "")), limit)
         label = "словарь"
         total = None
+    elif mode == "frag":
+        items = generators.fragment_candidates(body.get("text", ""), limit)
+        label = f"фрагмент · {body.get('text', '')}"
+        total = None
     else:
         return JSONResponse({"error": "неизвестный режим"}, status_code=400)
     job = await cq.submit(LOCAL_USER, items, label, delay, total)
