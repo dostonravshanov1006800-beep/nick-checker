@@ -345,16 +345,25 @@ def nice_candidates(limit: int = 400, exclude=None):
             n += 1
             if n >= limit:
                 return
-    words = _load_words()                        # 2) словарь 5-8, короткие первыми
-    for L in range(4, 9):
-        for w in words:
-            if len(w) != L or w in seen:
-                continue
+    words = _load_words()                        # 2) словарь 4-8 вперемешку
+    by_len = {L: [] for L in range(4, 9)}
+    for w in words:
+        L = len(w)
+        if 4 <= L <= 8 and w not in seen:
             seen.add(w)
-            yield w
-            n += 1
-            if n >= limit:
-                return
+            by_len[L].append(w)
+    i = 0
+    while n < limit:                             # по слову каждой длины по кругу:
+        if all(i >= len(by_len[L]) for L in range(4, 9)):   # свободные 5-8
+            return                               # приходят уже в первой партии,
+        for L in range(4, 9):                    # а не после месяца 4-буквенных
+            lst = by_len[L]
+            if i < len(lst):
+                yield lst[i]
+                n += 1
+                if n >= limit:
+                    return
+        i += 1
 
 
 

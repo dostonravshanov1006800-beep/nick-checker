@@ -360,10 +360,11 @@ async def hunt_watcher(msg: Message, job, batch: int, target: int = 0, poll: flo
     while job.status in ("queued", "running", "paused", "flood"):
         await asyncio.sleep(poll)
         new = job.counts["free"] - st["reported"]
-        if (new >= 10) or (new > 0 and time.time() - st["ts"] > 900):
+        if new > 0:                              # каждый свободный ник - сразу в чат
+            since = st["reported"]
             st["reported"] = job.counts["free"]
             st["ts"] = time.time()
-            await _hunt_send_list(msg, job)
+            await _hunt_send_list(msg, job, since=since)
         if target and found0 + job.counts["free"] >= target:
             cq.control("stop")                    # цель достигнута - мягкая остановка
             break
@@ -393,15 +394,16 @@ async def hunt_watcher(msg: Message, job, batch: int, target: int = 0, poll: flo
         await msg.answer(f"🏁 Охота выключена. Проверено партий: {batch}.")
 
 
-async def _hunt_send_list(msg: Message, job):
+async def _hunt_send_list(msg: Message, job, since: int = 0):
     free = list(dict.fromkeys(job.free_recent))
-    if not free:
+    new = free[since:]
+    if not new:
         return
-    lst = "\n".join(f"🟢 @{u}" for u in free[:30])
+    lst = "\n".join(f"🟢 @{u}" for u in new[:30])
     total = sum(job.counts.values())
     await msg.answer(
-        f"🆓 <b>Свободные ники ({len(free)})</b>\n{lst}\n\n"
-        f"Проверено: {total} · найдено свободных: {job.counts['free']} · "
+        f"🆓 <b>Свободные ники ({len(new)} новых)</b>\n{lst}\n\n"
+        f"Проверено: {total} · свободных за партию: {job.counts['free']} · "
         f"все в ⭐ избранном")
 
 

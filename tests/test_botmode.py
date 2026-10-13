@@ -392,6 +392,10 @@ def test_nice_candidates_brands_first_letters_only():
     rest = [w for w in c if w not in set(_gen.NICE_BRANDS)]
     assert rest and all(len(w) <= 8 for w in rest)
     assert all(c.index(w) > c.index(brands_in[-1]) for w in rest[:3]), "словарь после брендов"
+    # длины вперемешку: словарь начинается с 5 букв (4-буквенные - только бренды),
+    # поэтому в первых 15 словарных словах обязаны быть все длины 5,6,7,8
+    lens = {len(w) for w in rest[:15]}
+    assert lens == {5, 6, 7, 8}, f"перемешивание длин: {sorted(lens)}"
     # никаких цифр/подчёркиваний
     assert not any(w.isdigit() or "_" in w for w in c)
     # дубликатов нет
