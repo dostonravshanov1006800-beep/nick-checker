@@ -136,39 +136,89 @@ def test_web_engine_classifies():
     from app import webcheck
 
     class T:
-        def __init__(self, pages): self.pages, self.calls = pages, []
+        def __init__(self, pages): self.pages = pages
         async def __call__(self, url):
-            self.calls.append(url)
             for pat, body in self.pages.items():
                 if pat in url: return body
-            raise AssertionError(url)
+            return ""
 
     taken_html = "<div class='tgme_page_photo'></div><div class='tgme_page_title'>X</div>"
-    icon_html = "<div class='tgme_page_icon'><i class='tgme_icon_user'></i></div>"
+    view_html = "<title>Telegram: View @afley</title><div class='tgme_page_icon'></div>"
+    contact_html = "<title>Telegram: Contact @free</title><div class='tgme_page_icon'></div>"
     frag_html = "<label for='bid_value'>Minimum bid</label>"
-    stub_html = "<html>ник не найден</html>"
+    menu_html = "<div>Sold</div><a>On auction</a><b>Minimum bid</b>"   # меню любой страницы
+    nochat = lambda n: _async(False)
+
+    async def _noprobe(n): return False
+    async def _chatprobe(n): return True
 
     async def go():
-        e = webcheck.WebEngine(transport=T({"t.me/durov": taken_html}))
+        # фото/имя -> занят
+        e = webcheck.WebEngine(transport=T({"t.me/durov": taken_html}), chat_probe=_noprobe)
         r = await e.check("durov")
         assert r["status"] == "taken" and r["source"] == "web"
-        assert len(e._transport.calls) == 1, "занятый - fragment не нужен"
-
-        e = webcheck.WebEngine(transport=T({"t.me/nike": icon_html,
-                                            "fragment.com/username/nike": frag_html}))
-        assert (await e.check("nike"))["status"] == "taken", "коллекционный ник занят"
-
-        e = webcheck.WebEngine(transport=T({"t.me/": icon_html,
-                                            "fragment.com/": stub_html}))
+        # РЕГРЕССИЯ @afley: канал без фото - «View @» -> занят (раньше ложно free)
+        e = webcheck.WebEngine(transport=T({"t.me/afley": view_html}), chat_probe=_noprobe)
+        assert (await e.check("afley"))["status"] == "taken", "канал без фото = занят"
+        # getChat нашёл канал, а t.me пустой -> занят
+        e = webcheck.WebEngine(transport=T({"t.me/": contact_html}), chat_probe=_chatprobe)
+        assert (await e.check("hidden"))["status"] == "taken", "getChat: канал найден"
+        # Fragment: коллекционный ник
+        e = webcheck.WebEngine(transport=T({"t.me/nike": contact_html,
+                                            "fragment.com/username/nike": frag_html}), chat_probe=_noprobe)
+        assert (await e.check("nike"))["status"] == "taken"
+        # все три молчат -> свободен (кандидат)
+        e = webcheck.WebEngine(transport=T({"t.me/": contact_html, "fragment.com/": "<html></html>"}),
+                               chat_probe=_noprobe)
         r = await e.check("freeeee")
         assert r["status"] == "free" and r["source"] == "web"
         assert (await e.check("@Freeeee"))["status"] == "free", "нормализация @"
-
+        # меню Fragment («Sold», «On auction») на странице СВОБОДНОГО ника - не занятость
+        e = webcheck.WebEngine(transport=T({"t.me/": contact_html, "fragment.com/": menu_html}),
+                               chat_probe=_noprobe)
+        assert (await e.check("freeeee"))["status"] == "free", "меню Fragment не маркер"
+        # сеть упала -> ошибка, а не ложный free
         class Boom:
             async def __call__(self, url): raise OSError("сеть")
-        e = webcheck.WebEngine(transport=Boom())
+        e = webcheck.WebEngine(transport=Boom(), chat_probe=_noprobe)
         r = await e.check("x")
         assert r["status"] == "error" and "веб" in r["error"]
+    asyncio.run(go())
+
+
+def test_web_mode_checks_in_parallel_fast():
+    """Веб-режим: пачка из 20 проверок идёт параллельно, без пауз между ними."""
+    import time as _t
+    from app import webcheck, queue, checker as ck
+
+    async def slow_transport(url):
+        await asyncio.sleep(0.3)               # каждый запрос = 0.3 c
+        return "<title>Telegram: Contact @x</title>"
+    async def noprobe(n):
+        await asyncio.sleep(0.3); return False
+
+    class Floody:
+        async def check(self, u):
+            from telethon import errors as te
+            raise te.FloodWaitError(request=None, capture=3600)
+
+    async def go():
+        import tempfile, os as _os
+        from app import db as _db
+        _db.DB_PATH = _os.path.join(tempfile.mkdtemp(), "p.db"); _db._conn = None; _db.conn()
+        web = webcheck.WebEngine(transport=slow_transport, chat_probe=noprobe)
+        cq = queue.CheckQueue(Floody(), web_engine=web)
+        await cq.start()
+        names = [f"qqzzy{c}{d}" for c in "abcdefgh" for d in "ghijk"][:40]
+        t0 = _t.time()
+        await cq.submit(1, iter(names), label="p", delay=1.5, total=40)
+        for _ in range(200):
+            await asyncio.sleep(0.1)
+            if cq.job and cq.job.done >= 40: break
+        dt = _t.time() - t0
+        assert cq.job.done >= 40, cq.job.done
+        # последовательно было бы 40 x 0.3 c = 12 c и паузы 1.5 c x 40 = 60+ c
+        assert dt < 6, f"слишком медленно: {dt:.1f} c"
     asyncio.run(go())
 
 

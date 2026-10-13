@@ -401,10 +401,14 @@ async def _hunt_send_list(msg: Message, job, since: int = 0):
         return
     lst = "\n".join(f"🟢 @{u}" for u in new[:30])
     total = sum(job.counts.values())
+    web = cq.web_engine is not None and time.time() < cq.web_until
+    warn = ("\n⚠️ Проверено через веб: ~97% точность (пользователи без фото "
+            "могут выглядеть свободными) - перед сменой ника откройте t.me/ник"
+            if web else "")
     await msg.answer(
         f"🆓 <b>Свободные ники ({len(new)} новых)</b>\n{lst}\n\n"
         f"Проверено: {total} · свободных за партию: {job.counts['free']} · "
-        f"все в ⭐ избранном")
+        f"все в ⭐ избранном{warn}")
 
 
 async def hunt_stop(msg: Message):

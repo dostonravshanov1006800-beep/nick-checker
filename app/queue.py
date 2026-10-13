@@ -10,6 +10,7 @@ NET_RETRIES = 3
 FLOOD_MARGIN = 60          # запас к паузе, который просит Telegram
 JITTER = (1.0, 1.8)        # случайный множитель паузы (не робот, а человек)
 MAX_DELAY_FACTOR = 4.0     # потолок адаптивного замедления после флуда
+WEB_BATCH = 20             # проверок за раз в веб-режиме (параллельно, без пауз)
 
 
 class Job:
@@ -126,6 +127,15 @@ class CheckQueue:
         db.save_check(user_id, r)
         return r
 
+    async def _check_cached(self, user_id: int, username: str) -> dict:
+        cached = db.cached(username, user_id)
+        if cached:
+            return {"username": cached["username"], "status": cached["status"],
+                    "owner": None, "error": cached["error"], "from_cache": True}
+        r = await self._check(user_id, username)
+        db.save_check(user_id, r)
+        return r
+
     async def _check(self, user_id: int, username: str) -> dict:
         """Реальная проверка: FloodWait прокидывается, сеть — до 3 повторов."""
         if self.web_engine is not None and time.time() < self.web_until:
@@ -181,6 +191,40 @@ class CheckQueue:
                     if time.time() >= job.flood_until and job.status == "flood":
                         job.status = "running"
                         job.note = ""
+                    continue
+                # веб-режим (MTProto в бане): пачка параллельно, без пауз
+                if (self.web_engine is not None and time.time() < self.web_until
+                        and pending is None):
+                    batch = []
+                    for _ in range(WEB_BATCH):
+                        try:
+                            batch.append(rules.normalize(str(next(job.items))))
+                        except StopIteration:
+                            break
+                    if not batch:
+                        job.status = "done"
+                        break
+                    results = await asyncio.gather(
+                        *[self._check_cached(job.user_id, u) for u in batch])
+                    stop_now = False
+                    for r in results:
+                        job.done += 1
+                        if r["status"] in job.counts:
+                            job.counts[r["status"]] += 1
+                        if r["status"] == "free":
+                            job.free_recent.append(r["username"])
+                            if job.auto_save:
+                                db.add_favorite(job.user_id, r["username"])
+                        job.last_results.append({k: r.get(k) for k in ("username", "status", "error", "owner")})
+                        if r["status"] == "free" and job.stop_on_free:
+                            job.status = "done"
+                            job.note = f"🟢 найден свободный @{r['username']}"
+                            stop_now = True
+                            break
+                    await self._publish({"type": "result", "result": results[-1], "job": job.snapshot()})
+                    if stop_now or (job.total_hint and job.done >= job.total_hint):
+                        job.status = "done"
+                        break
                     continue
                 # берём следующий
                 if pending is None:
