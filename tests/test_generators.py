@@ -55,7 +55,7 @@ def test_auto_variants_order_and_dedup():
     v = list(auto_variants("doston", 40))
     assert v[0] == "doston"                     # точный ник первым
     assert len(v) == len(set(v))                # без дубликатов
-    assert all(len(u) >= 5 for u in v)          # валидные длины
+    assert all(len(u) >= 4 for u in v)          # валидные длины (минимум 4)
     assert "dostonn" in v[:5]                   # ближайшая мутация рано
     assert not any(c.isdigit() for u in v for c in u)   # только буквы и «_»
 
@@ -81,7 +81,7 @@ def test_fragment_contains_and_valid():
 def test_fragment_limit_and_order():
     cands = list(generators.fragment_candidates("quar", 10))
     assert len(cands) == 10
-    assert cands[0] == "thequar"                  # красивые комбинации первыми
+    assert cands[0] == "quar"                     # сам фрагмент (4 буквы) теперь валиден
 
 
 def test_fragment_rejects_bad_input():
@@ -92,4 +92,4 @@ def test_fragment_rejects_bad_input():
 def test_fragment_short_frag_makes_valid_nicks():
     # сам фрагмент короче 5 — кандидаты всё равно валидны
     cands = list(generators.fragment_candidates("go", 20))
-    assert all(len(c) >= 5 for c in cands)
+    assert all(len(c) >= 4 for c in cands)

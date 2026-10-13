@@ -1,7 +1,7 @@
 """Правила юзернеймов Telegram. Валидация ДО любого запроса (спека §5)."""
 import re
 
-MIN_LEN, MAX_LEN = 5, 32
+MIN_LEN, MAX_LEN = 4, 32
 LINK_RE = re.compile(r"(?:https?://)?(?:t(?:elegram)?\.me/)", re.I)
 BAD_CHARS_RE = re.compile(r"[^a-z0-9_]")
 

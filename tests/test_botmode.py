@@ -68,47 +68,27 @@ def _link(d):
 
 
 def test_start_banner_without_keyboard():
-    m = FakeMsg("/start")
-    asyncio.run(botmode.cmd_start(m, _cmd()))
-    r = m.replies[0]
-    assert "NICK CHECKER" in r and "Свободен" in r and "Занят" in r
-    from aiogram.types import ReplyKeyboardRemove
-    assert isinstance(m.kwargs[0].get("reply_markup"), ReplyKeyboardRemove)   # нижняя панель убрана
-
-
-def test_deeplink_single():
-    m = FakeMsg("/start")
-    asyncio.run(botmode.cmd_start(m, _cmd(_link({"t": "single", "u": "durov"}))))
-    assert any("durov" in r and "занят" in r for r in m.replies)
-
-
-def test_deeplink_auto_finds_free():
-    m = FakeMsg("/start")
+    """/start отвечает баннером охоты без лишних команд."""
+    import tempfile, os as _os
+    from app import db as _db
+    import app.botmode as bm
+    tmp = tempfile.mkdtemp()
+    _db.DB_PATH = _os.path.join(tmp, "t5.db"); _db._conn = None; _db.conn()
+    sent = []
+    class M:
+        class from_user: id = 111   # не владелец: авто-охоты нет
+        class chat: id = 111
+        async def answer(self, text, **kw): sent.append(text)
+        def __getattr__(self, n): return None
     async def go():
-        await botmode.cq.start()
-        await botmode.cmd_start(m, _cmd(_link({"t": "job", "m": "auto", "b": "freeabc", "n": 5})))
-        for _ in range(60):
-            await asyncio.sleep(0.2)
-            if any("Свободных найдено" in r for r in m.replies):
-                break
+        await bm.cmd_start(M(), type("CO", (), {"args": ""})())
     asyncio.run(go())
-    assert any("Свободных найдено" in r for r in m.replies)
+    assert sent and "Охота за красивыми никами" in sent[0] and "/stop" in sent[0], sent
 
 
-def test_deeplink_list_compact():
-    m = FakeMsg("/start")
-    async def go():
-        await botmode.cq.start()
-        await botmode.cmd_start(m, _cmd(_link({"t": "job", "m": "list", "x": "durov,freeone,freetwo", "n": 5000})))
-        await asyncio.sleep(0.3)
-    asyncio.run(go())
-    assert any("список" in r for r in m.replies)
 
 
-def test_deeplink_garbage():
-    m = FakeMsg("/start")
-    asyncio.run(botmode.cmd_start(m, _cmd("j_!!!не-base64")))
-    assert any("Не удалось" in r for r in m.replies)
+
 
 
 def test_single_taken():
@@ -405,11 +385,13 @@ def test_nice_candidates_brands_first_letters_only():
     c = list(_gen.nice_candidates(limit=200))
     assert c, "пусто"
     # только буквы, длина 5-8
-    assert all(w.isalpha() and w.islower() and 5 <= len(w) <= 8 for w in c), c[:20]
+    assert all(w.isalpha() and w.islower() and 4 <= len(w) <= 8 for w in c), c[:20]
     # первый эшелон - бренды (алфавитный порядок внутри эшелона)
     brands_in = [w for w in c if w in set(_gen.NICE_BRANDS)]
     assert len(brands_in) == len(_gen.NICE_BRANDS), "бренды должны идти первыми и целиком"
-    assert c.index(brands_in[-1]) < c.index("aahed"), "словарь должен идти после брендов"
+    rest = [w for w in c if w not in set(_gen.NICE_BRANDS)]
+    assert rest and all(len(w) <= 8 for w in rest)
+    assert all(c.index(w) > c.index(brands_in[-1]) for w in rest[:3]), "словарь после брендов"
     # никаких цифр/подчёркиваний
     assert not any(w.isdigit() or "_" in w for w in c)
     # дубликатов нет
@@ -462,7 +444,7 @@ def test_nice_hunt_mode_runs():
         assert job.items  # партия жива
         checked = _db.checked_names(77)
         assert "apple" in checked and "gucci" in checked, f"бренды первыми: {sorted(checked)}"
-        assert all(5 <= len(w) <= 8 and w.isalpha() for w in checked), checked
+        assert all(4 <= len(w) <= 8 and w.isalpha() for w in checked), checked
         _gen.NICE_BRANDS = old_nice
     asyncio.run(go())
 
@@ -509,4 +491,30 @@ def test_start_auto_hunts_for_owner():
         m2 = M(); m2.from_user = type("U", (), {"id": 111})(); m2.chat = type("C", (), {"id": 111})()
         await bm.cmd_start(m2, type("CO", (), {"args": ""})())
         assert len(started) == 1, started
+    asyncio.run(go())
+
+
+def test_stop_disables_hunt_and_queue():
+    """/stop выключает и очередь, и режим охоты."""
+    import tempfile, os as _os
+    from app import db as _db, queue as _queue, checker as _checker, generators as _gen
+    import app.botmode as bm
+    tmp = tempfile.mkdtemp()
+    _db.DB_PATH = _os.path.join(tmp, "t4.db"); _db._conn = None; _db.conn()
+    bm.cq = _queue.CheckQueue(_checker.Engine(None))
+    _db.hunt_set(42, True, 0, mode="nice", target=0)
+    class M:
+        class from_user: id = 42
+        class chat: id = 42
+        async def answer(self, text, **kw): return None
+        def __getattr__(self, n): return None
+    replies = []
+    async def rec(text, **kw): replies.append(text)
+    M.answer = staticmethod(rec)
+    async def go():
+        await bm.cmd_stop(M())
+        st = _db.hunt_get(42)
+        assert not st["enabled"], "охота должна выключиться"
+        assert st["mode"] == "nice", "режим сохраняется для будущих /start"
+        assert replies and "остановлена" in replies[-1]
     asyncio.run(go())

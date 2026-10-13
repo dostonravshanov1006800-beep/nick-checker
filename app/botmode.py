@@ -49,16 +49,11 @@ def menu(uid: int | None = None) -> ReplyKeyboardMarkup:
 
 
 BANNER = (
-    "⚡️ <b>NICK CHECKER</b> ⚡️\n"
-    "💎 <i>Проверка юзернеймов Telegram — по-настоящему</i>\n\n"
-    "🟢 Свободен · 🔴 Занят · 🟡 Недоступен\n\n"
-    "Просто пришли ник сообщением — например <code>@durov</code>.\n"
-    "Или пришли сразу список: <code>nick1, nick2, nick3</code>.\n"
-    "Шаблон: <code>ka??a</code> ( ? буква, # цифра, * любая ).\n"
-    "Генератор: <code>/gen 6 произносимые 50</code>\n"
-    "Авто-поиск: <code>/auto doston</code> — сам найду свободный и сохраню ⭐\n"
-    "Фрагмент: <code>/frag dost 200</code> — свободные ники, содержащие кусок\n\n"
-    "👇 Или открой приложение синей кнопкой слева от поля ввода."
+    "💎 <b>Охота за красивыми никами</b>\n"
+    "4-8 букв: мировые бренды + лучшие слова.\n"
+    "Свободные ники сохраняются автоматически.\n\n"
+    "Бот работает 24/7 — сам переживает баны и рестарты.\n"
+    "⏹ Остановить: <code>/stop</code>\n"
 )
 
 
@@ -170,14 +165,6 @@ OWNER_UID = 8396883978   # владелец бота: /start автоматич�
 
 @dp.message(CommandStart())
 async def cmd_start(msg: Message, command: CommandObject):
-    arg = (command.args or "").strip()
-    if arg.startswith("j_"):
-        payload = decode_job(arg)
-        if payload:
-            await run_payload(msg, payload)
-            return
-        await msg.answer("⚠️ Не удалось прочитать задание из приложения. Откройте приложение и повторите.")
-        return
     # убираем старую нижнюю клавиатуру у всех, кто её получал раньше
     await msg.answer(BANNER, reply_markup=ReplyKeyboardRemove())
     # владельцу: просто нажал /start — охота за красивыми никами идёт сама
@@ -188,7 +175,7 @@ async def cmd_start(msg: Message, command: CommandObject):
             await hunt_start(msg, nice=True)
 
 
-@dp.message(Command("gen"))
+
 async def cmd_gen(msg: Message):
     if not engine_ok():
         await unavailable(msg)
@@ -212,7 +199,7 @@ async def cmd_gen(msg: Message):
     asyncio.create_task(progress_updater(msg.chat.id))
 
 
-@dp.message(Command("auto"))
+
 async def cmd_auto(msg: Message):
     base = (msg.text or "").split(" ", 1)
     base = base[1].strip() if len(base) > 1 else ""
@@ -229,7 +216,7 @@ async def cmd_auto(msg: Message):
     await run_auto(msg, base, limit=limit, delay=1.5, stop_first="first" in (msg.text or "").lower())
 
 
-@dp.message(Command("frag"))
+
 async def cmd_frag(msg: Message):
     parts = (msg.text or "").split()
     if len(parts) < 2:
@@ -268,7 +255,7 @@ WATCH_POLL = 10   # как часто watcher смотрит счётчик (д�
 _hunt_report: dict[int, dict] = {}   # uid -> {found, ts, reported}
 
 
-@dp.message(Command("hunt"))
+
 async def cmd_hunt(msg: Message):
     arg = (msg.text or "").lower().replace("/hunt", "").strip()
     if arg in ("off", "стоп", "stop", "выкл"):
@@ -430,27 +417,32 @@ async def hunt_stop(msg: Message):
 @dp.message(Command("stop"))
 async def cmd_stop(msg: Message):
     ok = cq.control("stop")
-    await msg.answer("⏹ Очередь остановлена." if ok else "Активной очереди нет.")
+    st = db.hunt_get(msg.from_user.id)
+    if st and st["enabled"]:
+        db.hunt_set(msg.from_user.id, False, st["batch"], found=st.get("found", 0),
+                    mode=st.get("mode"), target=st.get("target") or 0)
+    await msg.answer("⏹ Охота остановлена." if (ok or (st and st["enabled"]))
+                     else "Охота не запущена.")
 
 
-@dp.message(Command("pause"))
+
 async def cmd_pause(msg: Message):
     ok = cq.control("pause")
     await msg.answer("⏸ Пауза." if ok else "Нечего ставить на паузу.")
 
 
-@dp.message(Command("resume"))
+
 async def cmd_resume(msg: Message):
     ok = cq.control("resume")
     await msg.answer("▶ Продолжаю." if ok else "Очереди на паузе нет.")
 
 
-@dp.message(F.text == "⏹ Стоп")
+
 async def btn_stop(msg: Message):
     await cmd_stop(msg)
 
 
-@dp.message(F.text == "⭐ Избранное")
+
 async def btn_fav(msg: Message):
     favs = db.favorites(msg.from_user.id)
     if not favs:
@@ -522,7 +514,7 @@ async def unavailable(msg: Message):
         "Чтобы включить: пришлите API_ID и API_HASH с my.telegram.org, затем подтвердите код входа.")
 
 
-@dp.message(F.web_app_data)
+
 async def on_web_app(msg: Message):
     try:
         payload = json.loads(msg.web_app_data.data)
@@ -605,7 +597,7 @@ async def cb_re(c: CallbackQuery):
     await c.message.answer(result_text(r, c.from_user.id), reply_markup=fav_kb(u))
 
 
-@dp.message(F.text)
+
 async def on_text(msg: Message):
     text = (msg.text or "").strip()
     if not engine_ok():
@@ -678,20 +670,14 @@ async def run():
     if BOT_TOKEN:
         # синяя кнопка мини-аппа слева в поле ввода (открывает приложение)
         try:
-            from aiogram.types import MenuButtonWebApp
-            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(
-                type="web_app", text="Ник-чекер", web_app=WebAppInfo(url=APP_URL)))
+            await bot.set_chat_menu_button(menu_button=None)   # мини-апп скрыт
         except Exception:
-            log.exception("menu button setup failed")
+            log.exception("menu button reset failed")
         await bot.delete_webhook(drop_pending_updates=False)
         try:
             from aiogram.types import BotCommand
-            await bot.set_my_commands([BotCommand(command="start", description="Проверка ников"),
-                                       BotCommand(command="gen", description="Генератор ников"),
-                                       BotCommand(command="auto", description="Авто-поиск свободного"),
-                                       BotCommand(command="stop", description="Остановить очередь"),
-                                       BotCommand(command="pause", description="Пауза"),
-                                       BotCommand(command="resume", description="Продолжить")])
+            await bot.set_my_commands([BotCommand(command="start", description="Включить охоту"),
+                                   BotCommand(command="stop", description="Остановить охоту")])
         except Exception:
             pass
         asyncio.create_task(sync_loop())

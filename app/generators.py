@@ -326,9 +326,10 @@ tokyo paris dubai miami vegas london moscow berlin madrid prague cairo
 osaka seoul milan
 azure dropbox webcam notepad
 lucky money kings
+nike sony dell epic ebay uber lyft xbox sega fiat audi jeep oppo vivo visa hive
 """
 NICE_BRANDS = sorted({w for w in NICE_BRANDS_RAW.split()
-                       if 5 <= len(w) <= 8 and w.isalpha() and w.islower()})
+                       if 4 <= len(w) <= 8 and w.isalpha() and w.islower()})
 
 
 def nice_candidates(limit: int = 400, exclude=None):
@@ -345,7 +346,7 @@ def nice_candidates(limit: int = 400, exclude=None):
             if n >= limit:
                 return
     words = _load_words()                        # 2) словарь 5-8, короткие первыми
-    for L in range(5, 9):
+    for L in range(4, 9):
         for w in words:
             if len(w) != L or w in seen:
                 continue
