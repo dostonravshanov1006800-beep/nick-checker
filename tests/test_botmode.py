@@ -91,13 +91,52 @@ def test_start_banner_without_keyboard():
 
 
 
-def test_single_taken():
+def test_single_nick_starts_auto_search():
+    """Одиночный ник = авто-поиск: точный ник первый, буквенные альтернативы."""
     m = FakeMsg("@durov")
     async def go():
         await botmode.cq.start()
         await botmode.on_text(m)
+        await asyncio.sleep(0.3)
+        botmode.cq.control("stop")
     asyncio.run(go())
-    assert "🔴" in m.replies[0] and "Дуров" in m.replies[0]
+    assert "авто-поиск · durov" in m.replies[0], m.replies[0]
+    j = botmode.cq.job
+    assert j.done >= 1 and j.last_results[0]["username"] == "durov"   # точный первым
+
+
+def test_single_nick_free_found_and_resumes_hunt():
+    """Точный ник свободен -> найден, сохранён в ⭐, охота возобновляется."""
+    import tempfile, os as _os, time as _t
+    from app import db as _db, webcheck as _wc
+    _db.DB_PATH = _os.path.join(tempfile.mkdtemp(), "h2.db"); _db._conn = None; _db.conn()
+    _db.hunt_set(42, True, 3)                      # охота включена
+    async def tr(u): return "<title>Telegram: Contact @x</title>"
+    async def probe(n): return False
+    botmode.cq.web_engine = _wc.WebEngine(transport=tr, chat_probe=probe)
+    botmode.cq.web_until = _t.time() + 120          # веб-режим = быстрые пачки
+    m = FakeMsg("freenick")
+    resumed = []
+    async def go():
+        await botmode.cq.start()
+        await botmode.on_text(m)
+        for _ in range(300):                        # ждём итог авто-поиска
+            await asyncio.sleep(0.1)
+            if any("Свободных найдено" in r for r in m.replies):
+                break
+        for _ in range(300):                        # ждём возобновления охоты
+            await asyncio.sleep(0.1)
+            j = botmode.cq.job
+            if j and j.label and "охота" in j.label or (j and "красивые" in (j.label or "")):
+                resumed.append(j.label); break
+        botmode.cq.control("stop")
+    try:
+        asyncio.run(go())
+        assert any("Свободных найдено" in r for r in m.replies), m.replies[:3]
+        assert any(f["username"] == "freenick" for f in _db.favorites(42))
+        assert resumed, "охота должна возобновиться после ручного поиска"
+    finally:
+        _db.hunt_set(42, False, 0)                  # изоляция следующих тестов
 
 
 def test_single_invalid():

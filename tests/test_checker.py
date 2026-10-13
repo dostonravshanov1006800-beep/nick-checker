@@ -257,3 +257,38 @@ def test_queue_flood_switches_to_web_and_continues():
         assert "веб" in snap["note"], "юзер должен видеть причину переключения"
         assert q.delay_factor == 1.5
     asyncio.run(go())
+
+
+def test_verify_web_candidates_drops_false_free():
+    """После бана MTProto: веб-«свободный» пользователь без фото убирается из ⭐,
+    реально свободный подтверждается и сообщается."""
+    import tempfile, os as _os
+    from app import db as _db, queue, checker as ck, webcheck
+
+    class MT:
+        async def check(self, u):
+            return {"username": u, "status": "taken" if u == "realuser" else "free",
+                    "error": None, "owner": None}
+
+    async def go():
+        _db.DB_PATH = _os.path.join(tempfile.mkdtemp(), "v.db"); _db._conn = None; _db.conn()
+        for u in ("realuser", "reallyfree"):
+            _db.save_check(7, {"username": u, "status": "free", "error": None, "owner": None, "source": "web"})
+            _db.add_favorite(7, u)
+        assert set(_db.web_candidates(7)) == {"realuser", "reallyfree"}
+        cq = queue.CheckQueue(MT(), web_engine=webcheck.WebEngine(transport=lambda u: "", chat_probe=lambda n: None))
+        cq.web_until = 0          # бан закончился
+        sent = []
+        async def notify(u): sent.append(u)
+        import app.queue as qm
+        orig = asyncio.sleep
+        qm.asyncio.sleep = lambda s: orig(0)
+        try:
+            n = await cq.verify_web_candidates(7, notify)
+        finally:
+            qm.asyncio.sleep = orig
+        assert n == 1 and sent == ["reallyfree"], (n, sent)
+        favs = {f["username"] for f in _db.favorites(7)}
+        assert favs == {"reallyfree"}, favs          # ложный удалён из ⭐
+        assert _db.web_candidates(7) == []           # очередь верификации пуста
+    asyncio.run(go())

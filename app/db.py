@@ -67,7 +67,9 @@ def save_check(user_id: int, r: dict):
         conn().execute(
             "INSERT INTO checks(user_id, username, status, owner_type, owner_name, error, checked_at) VALUES(?,?,?,?,?,?,?)",
             (user_id, r["username"], r["status"], (r.get("owner") or {}).get("type"),
-             (r.get("owner") or {}).get("name"), r.get("error"), int(time.time())))
+             (r.get("owner") or {}).get("name"),
+             "web" if (r["status"] == "free" and r.get("source") == "web") else r.get("error"),
+             int(time.time())))
         conn().commit()
 
 
@@ -173,3 +175,19 @@ def checked_names(user_id: int, days: int = 7) -> set[str]:
             "SELECT username FROM checks WHERE user_id=? AND checked_at>?",
             (user_id, int(time.time()) - days * 86400)).fetchall()
     return {r["username"] for r in rows}
+
+
+def web_candidates(user_id: int, limit: int = 20) -> list[str]:
+    """Веб-«свободные» без MTProto-подтверждения (последняя запись = web)."""
+    with _lock:
+        rows = conn().execute(
+            "SELECT username FROM checks c WHERE user_id=? AND status='free' AND error='web' "
+            "AND id=(SELECT MAX(id) FROM checks WHERE username=c.username) "
+            "ORDER BY id LIMIT ?", (user_id, limit)).fetchall()
+    return [r[0] for r in rows]
+
+
+def remove_favorite(user_id: int, username: str):
+    with conn() as _conn:
+        _conn.execute("DELETE FROM favorites WHERE user_id=? AND username=?",
+                      (user_id, rules.normalize(username)))

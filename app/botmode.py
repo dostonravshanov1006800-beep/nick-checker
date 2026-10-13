@@ -485,23 +485,34 @@ async def auto_watcher(msg: Message, job, total: int, kind: str = "auto"):
         await asyncio.sleep(2)
     if job.status == "stopped":
         return  # прогресс-сообщение уже сказало всё
+    web = cq.web_engine is not None and time.time() < cq.web_until
+    warn = ("\n⚠️ Пока проверяю через веб (~97% точности): перед установкой "
+            "открой t.me/ник и убедись, что он пуст") if web else ""
     if job.free_recent:
         free = list(dict.fromkeys(job.free_recent))
         lst = "\n".join(f"• @{x}" for x in free[:30])
         await msg.answer(
             f"🟢 <b>Свободных найдено: {len(free)}</b>\n{lst}\n\n"
             f"⭐ Все сохранены в избранное.\n"
-            f"Проверено вариантов: {job.done} из {total}",
+            f"Проверено вариантов: {job.done} из {total}{warn}",
             reply_markup=fav_kb(free[0]))
     else:
         if kind == "frag":
             await msg.answer(
                 f"🔴 Свободных не нашёл: перебрал {job.done} вариантов с фрагментом.\n"
-                "Попробуй другой/длиннее фрагмент или увеличь лимит: <code>/frag dost 400</code>")
+                "Попробуй другой/длиннее фрагмент или увеличь лимит: <code>/frag dost 400</code>{warn}")
         else:
             await msg.answer(
-                f"🔴 Свободных не нашёл: перебрал {job.done} вариантов вокруг ника.\n"
-                "Попробуй другую основу или увеличь лимит: <code>/auto doston 100</code>")
+                f"🔴 Свободных не нашёл: {job.done} вариантов вокруг ника заняты.\n"
+                "Почти все короткие/красивые заняты или на аукционе Fragment.\n"
+                "Попробуй длиннее или другой корень{warn}")
+    # ручной поиск закончился: если охота была включена - продолжаем её сами
+    try:
+        st = db.hunt_get(msg.from_user.id)
+        if st and st.get("enabled"):
+            await _hunt_run(msg, int(st.get("batch") or 0) + 1)
+    except Exception:
+        log.exception("hunt resume after auto")
 
 
 def is_pattern(t: str) -> bool:
@@ -620,8 +631,9 @@ async def on_text(msg: Message):
         await msg.answer("⚠️ Не распознал ники. Формат: <code>durov</code>, <code>@durov</code>, список или шаблон <code>ka??a</code>.")
         return
     if len(items) == 1:
-        r = await cq.check_one(msg.from_user.id, items[0])
-        await msg.answer(result_text(r, msg.from_user.id), reply_markup=fav_kb(items[0]))
+        # юзер прислал ЖЕЛАЕМЫЙ ник: ищем его и буквенные альтернативы,
+        # пока не найдём свободный (занято ~97%, либо аукцион Fragment)
+        await run_auto(msg, items[0], limit=120)
     else:
         await report_job(msg, f"список · {len(items)} ников")
         await cq.submit(msg.from_user.id, items, f"список · {len(items)} ников", 1.5, len(items))
@@ -673,6 +685,18 @@ async def run():
     engine = E(await _connect_engine())
     cq = queue.CheckQueue(engine, web_engine=webcheck.WebEngine())
     await cq.start()
+
+    async def _verify_loop():
+        """Каждые 2 мин: если MTProto свободен - подтверждаем веб-кандидатов."""
+        while True:
+            await asyncio.sleep(120)
+            try:
+                async def _n(u):
+                    await bot.send_message(OWNER_UID, f"✅ <b>Подтверждено MTProto:</b> @{u} свободен")
+                await cq.verify_web_candidates(OWNER_UID, _n)
+            except Exception:
+                log.exception("verify loop")
+    asyncio.create_task(_verify_loop())
     if BOT_TOKEN:
         # синяя кнопка мини-аппа слева в поле ввода (открывает приложение)
         try:

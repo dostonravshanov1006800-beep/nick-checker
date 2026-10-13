@@ -86,6 +86,29 @@ class CheckQueue:
             self._task = asyncio.create_task(self._worker())
         return self._task
 
+    async def verify_web_candidates(self, user_id: int, notify) -> int:
+        """Когда MTProto доступен: перепроверяем веб-«свободные». Ложные
+        (пользователь без фото) удаляем из ⭐, подтверждённые - сообщаем."""
+        if self.web_engine is not None and time.time() < self.web_until:
+            return 0
+        confirmed = 0
+        for u in db.web_candidates(user_id, 10):
+            try:
+                r = await self.engine.check(u)
+            except errors.FloodWaitError as e:
+                self.web_until = time.time() + e.seconds + FLOOD_MARGIN
+                return confirmed
+            except Exception:
+                continue
+            db.save_check(user_id, {**r, "source": "mtproto"})
+            if r["status"] == "free":
+                confirmed += 1
+                await notify(u)
+            else:
+                db.remove_favorite(user_id, u)
+            await asyncio.sleep(3)
+        return confirmed
+
     async def submit(self, user_id: int, items, label="", delay=1.5, total=None,
                      stop_on_free=False, auto_save=False) -> Job:
         old = self.job
