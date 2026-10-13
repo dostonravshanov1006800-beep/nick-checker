@@ -18,7 +18,7 @@ from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import (CallbackQuery, KeyboardButton, Message,
                            ReplyKeyboardMarkup, ReplyKeyboardRemove, WebAppInfo)
 
-from . import db, generators, queue, sync
+from . import db, generators, queue, sync, webcheck
 from .checker import Engine, STATUS_LABEL
 
 log = logging.getLogger("nc")
