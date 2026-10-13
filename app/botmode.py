@@ -255,6 +255,7 @@ async def run_frag(msg: Message, frag: str, limit: int = 200, delay: float = 1.5
 
 HUNT_BATCH = 400          # вариантов за партию
 HUNT_DELAY = 3.0          # пауза между проверками (× jitter 1.0-1.8 → 3-5.4 сек)
+WATCH_POLL = 10   # как часто watcher смотрит счётчик (для тестов замедляем)
 _hunt_report: dict[int, dict] = {}   # uid -> {found, ts, reported}
 
 
@@ -263,11 +264,15 @@ async def cmd_hunt(msg: Message):
     arg = (msg.text or "").lower().replace("/hunt", "").strip()
     if arg in ("off", "стоп", "stop", "выкл"):
         await hunt_stop(msg)
+    elif arg in ("nice", "beauty", "красиво", "бренд"):
+        await hunt_start(msg, nice=True)     # 5-8 букв: бренды мира + словарь
+    elif arg and all(c in "abcdefghijklmnopqrstuvwxyz0123456789_" for c in arg):
+        await hunt_start(msg, brand=arg)      # /hunt p2p -> p2p5<слово>
     else:
         await hunt_start(msg)
 
 
-async def hunt_start(msg: Message):
+async def hunt_start(msg: Message, brand: str | None = None, nice: bool = False):
     if not engine_ok():
         await unavailable(msg)
         return
@@ -277,20 +282,46 @@ async def hunt_start(msg: Message):
         return
     st = db.hunt_get(msg.from_user.id)
     batch = (st["batch"] if st else 0)
-    db.hunt_set(msg.from_user.id, True, batch)
+    brand = brand or (st or {}).get("mode")
+    nice = nice or brand == "nice"
+    if nice:
+        brand = None
+    target = int((st or {}).get("target") or 0)
+    if brand and not target:
+        target = generators.BRAND_TARGET
+    mode = "nice" if nice else brand
+    db.hunt_set(msg.from_user.id, True, batch, mode=mode, target=target)
     total_all = HUNT_BATCH * (batch + 1)
     eta = int(HUNT_BATCH * HUNT_DELAY / 60)
-    await msg.answer(
-        f"🆓 <b>Охота запущена</b>\n"
-        f"Ищу ники: настоящие английские слова, только буквы, без цифр.\n"
-        f"Порядок: все 5-буквенные → все 6-буквенные → 7 и дальше.\n"
-        f"Ёмкость словаря 300 000+ имён - хватит на сотни партий.\n"
-        f"Партия {batch + 1}: ~{HUNT_BATCH} вариантов, примерно {eta} мин.\n"
-        f"Проверено всего будет ~{total_all}, свободные сохраняются в ⭐ автоматически.\n\n"
-        f"Можешь закрыть чат - охота идёт сама. Списки находок буду присылать сюда.\n"
-        f"Если MTProto словит бан - перейду на веб-проверки (t.me + Fragment),\n"
-        f"поиск не остановится. Баны пережидаю автоматически.\n"
-        f"Остановить: <code>/hunt off</code>")
+    if nice:
+        await msg.answer(
+            f"💎 <b>Охота за красивыми никами</b>\n"
+            f"5-8 символов, ТОЛЬКО буквы.\n"
+            f"Эшелон 1: мировые бренды и компании ({len(generators.NICE_BRANDS)}: apple, gucci, ferrari…).\n"
+            f"Эшелон 2: лучшие словарные слова 5-8 букв.\n"
+            f"Партия {batch + 1}: ~{HUNT_BATCH} вариантов, свободные — в ⭐ автоматически.\n"
+            f"Работает 24/7: переживает баны (веб-проверки t.me + Fragment),\n"
+            f"рестарты и флуд. Остановить: <code>/hunt off</code>")
+    elif brand:
+        await msg.answer(
+            f"🆓 <b>Охота по бренду @{brand}</b>\n"
+            f"Шаблон: <code>{brand}[цифра 5/6/7][слово]</code> — p2p5uz, p2p6ton…\n"
+            f"Цель: {target} свободных, потом остановлюсь сам.\n"
+            f"Проверяю партию {batch + 1} (~{generators.BRAND_BATCH} вариантов).\n"
+            f"Можешь закрыть чат — находки буду присылать сюда.\n"
+            f"Остановить: <code>/hunt off</code>")
+    else:
+        await msg.answer(
+            f"🆓 <b>Охота запущена</b>\n"
+            f"Ищу ники: настоящие английские слова, только буквы, без цифр.\n"
+            f"Порядок: все 5-буквенные → все 6-буквенные → 7 и дальше.\n"
+            f"Ёмкость словаря 300 000+ имён - хватит на сотни партий.\n"
+            f"Партия {batch + 1}: ~{HUNT_BATCH} вариантов, примерно {eta} мин.\n"
+            f"Проверено всего будет ~{total_all}, свободные сохраняются в ⭐ автоматически.\n\n"
+            f"Можешь закрыть чат - охота идёт сама. Списки находок буду присылать сюда.\n"
+            f"Если MTProto словит бан - перейду на веб-проверки (t.me + Fragment),\n"
+            f"поиск не остановится. Баны пережидаю автоматически.\n"
+            f"Остановить: <code>/hunt off</code>")
     await _hunt_run(msg, batch + 1)
 
 
@@ -298,32 +329,61 @@ async def _hunt_run(msg: Message, batch: int):
     cur = db.hunt_get(msg.from_user.id)
     if not (cur and cur["enabled"] and cur["batch"] + 1 == batch):
         return  # охота выключена или уже другая сессия - не запускаем
+    brand = cur.get("mode")
+    target = int(cur.get("target") or 0)
     exclude = db.checked_names(msg.from_user.id)
-    items = list(generators.hunt_candidates(HUNT_BATCH, exclude=exclude))
-    if not items:                                # всё свежее проверено - перепроверяем старое
-        items = list(generators.hunt_candidates(HUNT_BATCH))
-    await report_job(msg, f"охота · партия {batch}")
-    job = await cq.submit(msg.from_user.id, items, f"охота · партия {batch}",
+    if brand == "nice":
+        items = list(generators.nice_candidates(HUNT_BATCH, exclude=exclude))
+        if not items:
+            items = list(generators.nice_candidates(HUNT_BATCH))
+        label = f"красивые · партия {batch}"
+    elif brand:
+        items = list(generators.brand_candidates(brand, limit=generators.BRAND_BATCH,
+                                                  exclude=exclude))
+        if not items:
+            items = list(generators.brand_candidates(brand, limit=generators.BRAND_BATCH))
+        label = f"{brand}-охота · партия {batch}"
+    else:
+        items = list(generators.hunt_candidates(HUNT_BATCH, exclude=exclude))
+        if not items:                            # всё свежее проверено - перепроверяем старое
+            items = list(generators.hunt_candidates(HUNT_BATCH))
+        label = f"охота · партия {batch}"
+    await report_job(msg, label)
+    job = await cq.submit(msg.from_user.id, items, label,
                          HUNT_DELAY, len(items), auto_save=True)
     _hunt_report.setdefault(msg.from_user.id, {"found": 0, "ts": time.time(), "reported": 0})
     asyncio.create_task(progress_updater(msg.chat.id))
-    asyncio.create_task(hunt_watcher(msg, job, batch))
+    asyncio.create_task(hunt_watcher(msg, job, batch, target=target, poll=WATCH_POLL))
 
 
-async def hunt_watcher(msg: Message, job, batch: int):
+async def hunt_watcher(msg: Message, job, batch: int, target: int = 0, poll: float = 10):
     """Пока партия идёт: раз в 15 мин или каждые 10 находок шлёт список; после конца - следующая партия."""
     uid = msg.from_user.id
     st = _hunt_report.setdefault(uid, {"found": 0, "ts": time.time(), "reported": 0})
+    found0 = int((db.hunt_get(uid) or {}).get("found") or 0)   # накоплено прошлыми партиями
     while job.status in ("queued", "running", "paused", "flood"):
-        await asyncio.sleep(10)
+        await asyncio.sleep(poll)
         new = job.counts["free"] - st["reported"]
         if (new >= 10) or (new > 0 and time.time() - st["ts"] > 900):
             st["reported"] = job.counts["free"]
             st["ts"] = time.time()
             await _hunt_send_list(msg, job)
+        if target and found0 + job.counts["free"] >= target:
+            cq.control("stop")                    # цель достигнута - мягкая остановка
+            break
     if job.status == "stopped":
-        db.hunt_set(uid, False, batch)
-        await msg.answer("⏹ Охота остановлена.")
+        hit = target and found0 + job.counts["free"] >= target
+        if job.free_recent:
+            db.hunt_add_found(uid, len(job.free_recent))
+        st_now = db.hunt_get(uid) or {}
+        db.hunt_set(uid, False, batch, found=st_now.get("found", 0),
+                    mode=st_now.get("mode"), target=st_now.get("target") or 0)
+        if hit:
+            await msg.answer(f"🏁 <b>Цель достигнута: {found0 + job.counts['free']} свободных ников шаблона найдено.</b>\n"
+                             f"Все — в ⭐ избранном. Охота остановлена.")
+        else:
+            await msg.answer("⏹ Охота остановлена.")
+        await _hunt_send_list(msg, job)
         return
     # партия кончилась - сразу следующая, пока включена
     cur = db.hunt_get(uid)
@@ -353,7 +413,8 @@ async def hunt_stop(msg: Message):
     st = db.hunt_get(msg.from_user.id)
     off = cq.control("stop")
     if st and st["enabled"]:
-        db.hunt_set(msg.from_user.id, False, st["batch"])
+        db.hunt_set(msg.from_user.id, False, st["batch"], found=st.get("found", 0),
+                    mode=st.get("mode"), target=st.get("target") or 0)
     await msg.answer("⏹ Останавливаю охоту" + ("" if off else ": активной партии нет, режим выключен."))
 
 

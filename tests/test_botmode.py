@@ -311,3 +311,157 @@ def test_hunt_generator_no_digits_no_underscores():
     vs2 = list(generators.hunt_candidates(300, exclude=ex))
     assert not (set(vs2) & ex), "не должен повторять проверенное"
     assert len(vs2) == 300
+
+
+# ---------- бренд-охота: p2p5<слово>, цель 100 ----------
+
+def test_brand_candidates_pattern():
+    from app import generators
+    c = list(generators.brand_candidates("p2p", limit=12))
+    assert c[:6] == ["p2p5uz", "p2p6uz", "p2p7uz", "p2p5uzb", "p2p6uzb", "p2p7uzb"], c[:6]
+    assert all(x.startswith("p2p") for x in c)
+    # одна цифра 5/6/7 между брендом и словом
+    import re
+    assert all(re.fullmatch(r"p2p[567][a-z]+", x) for x in c), c
+    # без дублей
+    assert len(c) == len(set(c))
+    # exclude не повторяем
+    c2 = list(generators.brand_candidates("p2p", limit=20, exclude=c[:10]))
+    assert not (set(c[:10]) & set(c2))
+    # лимит
+    assert len(list(generators.brand_candidates("p2p", limit=3))) == 3
+    # невалидный бренд - пусто
+    assert list(generators.brand_candidates("")) == []
+
+
+def test_brand_hunt_stops_at_target():
+    """Охота p2p сама останавливается, найдя 100 свободных."""
+    import tempfile, os as _os
+    from app import db as _db
+    from app import queue as _queue, checker as _checker, generators as _gen
+    import app.botmode as bm
+    from telethon.tl.functions.contacts import ResolveUsernameRequest
+
+    tmp = tempfile.mkdtemp()
+    _db.DB_PATH = _os.path.join(tmp, "t.db")
+    _db._conn = None
+    _db.conn()
+
+    class BrandFree:
+        async def __call__(self, req):
+            if isinstance(req, ResolveUsernameRequest):
+                raise __import__("telethon").errors.UsernameNotOccupiedError(request=None)
+            return True
+
+    bm.engine = _checker.Engine(BrandFree())
+    bm.cq = _queue.CheckQueue(bm.engine)
+    bm.HUNT_DELAY = 0.01
+    bm.WATCH_POLL = 0.02
+    old_batch = _gen.BRAND_BATCH
+    _gen.BRAND_BATCH = 40   # 3 партии по 40 -> цель 100 закрывается на 3-й
+    sent = []
+    class M:
+        class from_user: id = 42
+        class chat: id = 42
+        async def answer(self, text, **kw): sent.append(text)
+        def __getattr__(self, n): return None
+
+    async def _noop(msg=None, label=None):
+        return None
+    bm.report_job = _noop
+
+    _db.hunt_set(42, True, 0, mode="p2p", target=100)
+
+    async def go():
+        await bm.cq.start()
+        await bm._hunt_run(M(), 1)
+        for _ in range(5000):   # ~4 мин запас: очередь держит минимум 0.3с/чек
+            st = _db.hunt_get(42)
+            job = bm.cq.job
+            if job and job.status in ("done", "stopped") and not st["enabled"]:
+                break
+            await asyncio.sleep(0.05)
+        _gen.BRAND_BATCH = old_batch
+        st = _db.hunt_get(42)
+        job = bm.cq.job
+        # цель кумулятивна: прошлые партии + текущая = 100
+        assert st["found"] >= 100, (st, dict(job.counts))
+        assert job.status == "stopped", job.status
+        assert not st["enabled"], "охота должна выключиться на цели"
+        assert any("Цель достигнута" in s for s in sent), sent[-3:]
+        favs = _db.favorites(42)
+        assert len(favs) >= 100
+        assert all(f["username"].startswith("p2p") for f in favs)
+        # все находки соответствуют шаблону p2p[567]...
+        import re as _re
+        assert all(_re.fullmatch(r"p2p[567][a-z]+", f["username"]) for f in favs)
+    asyncio.run(go())
+
+
+# ---------- красивая охота: 5-8 букв, бренды мира ----------
+
+def test_nice_candidates_brands_first_letters_only():
+    from app import generators as _gen
+    c = list(_gen.nice_candidates(limit=200))
+    assert c, "пусто"
+    # только буквы, длина 5-8
+    assert all(w.isalpha() and w.islower() and 5 <= len(w) <= 8 for w in c), c[:20]
+    # первый эшелон - бренды (алфавитный порядок внутри эшелона)
+    brands_in = [w for w in c if w in set(_gen.NICE_BRANDS)]
+    assert len(brands_in) == len(_gen.NICE_BRANDS), "бренды должны идти первыми и целиком"
+    assert c.index(brands_in[-1]) < c.index("aahed"), "словарь должен идти после брендов"
+    # никаких цифр/подчёркиваний
+    assert not any(w.isdigit() or "_" in w for w in c)
+    # дубликатов нет
+    assert len(c) == len(set(c))
+    # exclude уважается
+    c2 = list(_gen.nice_candidates(limit=250, exclude=c[:100]))
+    assert not (set(c[:100]) & set(c2))
+    # лимит точен
+    assert len(list(_gen.nice_candidates(limit=5))) == 5
+
+
+def test_nice_hunt_mode_runs():
+    """'/hunt nice' запускает партию с брендовым эшелоном."""
+    import tempfile, os as _os
+    from app import db as _db, queue as _queue, checker as _checker, generators as _gen
+    import app.botmode as bm
+    from telethon.tl.functions.contacts import ResolveUsernameRequest
+
+    tmp = tempfile.mkdtemp()
+    _db.DB_PATH = _os.path.join(tmp, "t2.db"); _db._conn = None; _db.conn()
+
+    class AllFree:
+        async def __call__(self, req):
+            if isinstance(req, ResolveUsernameRequest):
+                raise __import__("telethon").errors.UsernameNotOccupiedError(request=None)
+            return True
+
+    bm.engine = _checker.Engine(AllFree())
+    bm.cq = _queue.CheckQueue(bm.engine)
+    bm.HUNT_BATCH, bm.HUNT_DELAY, bm.WATCH_POLL = 5, 0.01, 0.02
+    old_nice = _gen.NICE_BRANDS
+    _gen.NICE_BRANDS = ["apple", "gucci", "tokyo", "omega"]
+
+    class M:
+        class from_user: id = 77
+        class chat: id = 77
+        async def answer(self, text, **kw): return None
+        def __getattr__(self, n): return None
+
+    async def _noop(msg=None, label=None): return None
+    bm.report_job = _noop
+    _db.hunt_set(77, True, 0, mode="nice", target=0)
+
+    async def go():
+        await bm.cq.start()
+        await bm._hunt_run(M(), 1)
+        await asyncio.sleep(1.2)
+        job = bm.cq.job
+        assert job.label.startswith("красивые · партия 1"), job.label
+        assert job.items  # партия жива
+        checked = _db.checked_names(77)
+        assert "apple" in checked and "gucci" in checked, f"бренды первыми: {sorted(checked)}"
+        assert all(5 <= len(w) <= 8 and w.isalpha() for w in checked), checked
+        _gen.NICE_BRANDS = old_nice
+    asyncio.run(go())

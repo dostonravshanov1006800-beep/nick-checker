@@ -258,6 +258,105 @@ def hunt_candidates(limit: int = 400, exclude=None):
                 break
 
 
+# ---------- охота по бренду: p2p5<слово> ----------
+BRAND_DIGITS = "567"                # одна цифра между брендом и словом
+BRAND_SUFFIX_FIRST = ("uz", "uzb")  # короткие бренд-суффиксы первыми (как p2puzb)
+BRAND_TARGET = 100                  # сколько свободных ищем
+BRAND_BATCH = 150                   # проверок за партию (цель обычно закрывается за 1-2)
+
+
+def brand_candidates(prefix: str, limit: int = BRAND_BATCH, exclude=None,
+                     digits: str = BRAND_DIGITS):
+    """Кандидаты <prefix><цифра><слово>: uz/uzb первыми, затем словарь
+    5-12 букв по возрастанию длины. Цифра одна: 5, 6 или 7."""
+    p = rules.normalize(prefix)
+    if not p or not all(c.isdigit() for c in digits):
+        return
+    excl = set(exclude or ())
+    seen = set(excl)
+    n = 0
+    for suf in BRAND_SUFFIX_FIRST:
+        for d in digits:
+            w = f"{p}{d}{suf}"
+            if len(w) >= rules.MIN_LEN and w not in seen:
+                seen.add(w)
+                yield w
+                n += 1
+                if n >= limit:
+                    return
+    words = _load_words()
+    for L in range(5, 13):
+        for w in words:
+            if len(w) != L:
+                continue
+            for d in digits:
+                cand = f"{p}{d}{w}"
+                if cand in seen:
+                    continue
+                seen.add(cand)
+                yield cand
+                n += 1
+                if n >= limit:
+                    return
+
+
+
+# ---------- охота за красивыми никами: 5-8 букв, мировые бренды ----------
+NICE_BRANDS_RAW = """
+apple adobe amazon google github gitlab docker python scala linux debian
+ubuntu heroku vercel netflix nginx apache mysql sqlite django flask react
+svelte keras angular redis intel cisco yahoo motorola siemens bosch samsung
+nokia xiaomi huawei tiktok wechat paypal baidu tencent alibaba spotify
+twitter facebook discord telegram snapchat signal viber quora reddit twitch
+shazam deezer tidal pandora sound
+gucci prada chanel versace hermes armani uniqlo levis denim
+toyota ferrari porsche maserati bugatti bentley nissan subaru mazda jaguar
+corvette mustang camaro dodge volvo lexus infiniti acura tesla honda
+pepsi sprite fanta nestle danone heinz kraft doritos kitkat snickers
+dominos subway
+robinhood revolut stripe coinbase binance kraken bitpay metamask
+atari valve steam blizzard ubisoft roblox fortnite valorant zelda mario sonic
+spacex boeing airbus lockheed northrop emirates turkish aeroflot british
+marriott hilton radisson sheraton
+omega rolex casio fossil seiko citizen tissot
+nivea lancome garnier rexona
+meizu oneplus realme honor nubia
+disney pixar marvel warner
+tokyo paris dubai miami vegas london moscow berlin madrid prague cairo
+osaka seoul milan
+azure dropbox webcam notepad
+lucky money kings
+"""
+NICE_BRANDS = sorted({w for w in NICE_BRANDS_RAW.split()
+                       if 5 <= len(w) <= 8 and w.isalpha() and w.islower()})
+
+
+def nice_candidates(limit: int = 400, exclude=None):
+    """Красивые ники 5-8 БУКВ: сначала мировые бренды/компании/города,
+    затем словарь по возрастанию длины (5 → 8). Только буквы, без цифр."""
+    excl = set(exclude or ())
+    seen: set[str] = set(excl)
+    n = 0
+    for w in NICE_BRANDS:                       # 1) мировой бренд-эшелон
+        if w not in seen:
+            seen.add(w)
+            yield w
+            n += 1
+            if n >= limit:
+                return
+    words = _load_words()                        # 2) словарь 5-8, короткие первыми
+    for L in range(5, 9):
+        for w in words:
+            if len(w) != L or w in seen:
+                continue
+            seen.add(w)
+            yield w
+            n += 1
+            if n >= limit:
+                return
+
+
+
 # ---------- поиск по фрагменту: ники, СОДЕРЖАЩИЕ подстроку ----------
 FRAG_MIN = 2  # сам фрагмент может быть короче ника; кандидаты ≥5 по правилам
 

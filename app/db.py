@@ -43,6 +43,11 @@ def conn() -> sqlite3.Connection:
                 added_at INTEGER NOT NULL,
                 PRIMARY KEY(user_id, username))""")
             _conn.commit()
+            for _col in ("mode TEXT", "target INTEGER"):   # бренд-охота
+                try:
+                    _conn.execute(f"ALTER TABLE hunt ADD COLUMN {_col}")
+                except Exception:
+                    pass
     return _conn
 
 
@@ -136,12 +141,15 @@ def hunt_get(user_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-def hunt_set(user_id: int, enabled: bool, batch: int = 0, found: int = 0):
+def hunt_set(user_id: int, enabled: bool, batch: int = 0, found: int = 0,
+             mode: str | None = None, target: int = 0):
     with _lock:
         conn().execute(
-            "INSERT INTO hunt(user_id, enabled, batch, found, started_at) VALUES(?,?,?,?,?) "
-            "ON CONFLICT(user_id) DO UPDATE SET enabled=?, batch=?, found=?",
-            (user_id, int(enabled), batch, found, int(time.time()), int(enabled), batch, found))
+            "INSERT INTO hunt(user_id, enabled, batch, found, started_at, mode, target) "
+            "VALUES(?,?,?,?,?,?,?) "
+            "ON CONFLICT(user_id) DO UPDATE SET enabled=?, batch=?, found=?, mode=?, target=?",
+            (user_id, int(enabled), batch, found, int(time.time()), mode, target,
+             int(enabled), batch, found, mode, target))
         conn().commit()
 
 
