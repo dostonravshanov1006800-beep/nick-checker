@@ -465,3 +465,48 @@ def test_nice_hunt_mode_runs():
         assert all(5 <= len(w) <= 8 and w.isalpha() for w in checked), checked
         _gen.NICE_BRANDS = old_nice
     asyncio.run(go())
+
+
+def test_start_auto_hunts_for_owner():
+    """/start владельца сам запускает красивую охоту; чужому — нет."""
+    import tempfile, os as _os
+    from app import db as _db, queue as _queue, checker as _checker
+    import app.botmode as bm
+    from aiogram.types import Message as _Msg
+
+    tmp = tempfile.mkdtemp()
+    _db.DB_PATH = _os.path.join(tmp, "t3.db"); _db._conn = None; _db.conn()
+
+    bm.engine = _checker.Engine(None)          # engine_ok() -> unavailable(msg)
+    bm.cq = _queue.CheckQueue(bm.engine)
+    bm.WATCH_POLL = 0.02
+
+    started = []
+    async def _fake_hunt_start(msg, brand=None, nice=False):
+        started.append((msg.from_user.id, nice))
+    bm.hunt_start = _fake_hunt_start
+
+    class Bot:
+        async def __call__(self, chat_id, text=None, **kw):  # unavailable() шлёт сюда
+            return None
+
+    class M:
+        class from_user: id = 0
+        class chat: id = 0
+        async def answer(self, text, **kw): return None
+        def __getattr__(self, n): return None
+
+    async def go():
+        # владелец: охота не включена -> авто-старт
+        m = M(); m.from_user = type("U", (), {"id": bm.OWNER_UID})(); m.chat = type("C", (), {"id": bm.OWNER_UID})()
+        await bm.cmd_start(m, type("CO", (), {"args": ""})())
+        assert started and started[-1] == (bm.OWNER_UID, True), started
+        # теперь включена -> повторный /start не дублирует
+        _db.hunt_set(bm.OWNER_UID, True, 0, mode="nice", target=0)
+        await bm.cmd_start(m, type("CO", (), {"args": ""})())
+        assert len(started) == 1, started
+        # чужой юзер: ничего не запускается
+        m2 = M(); m2.from_user = type("U", (), {"id": 111})(); m2.chat = type("C", (), {"id": 111})()
+        await bm.cmd_start(m2, type("CO", (), {"args": ""})())
+        assert len(started) == 1, started
+    asyncio.run(go())

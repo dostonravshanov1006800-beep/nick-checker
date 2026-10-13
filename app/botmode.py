@@ -165,6 +165,9 @@ def decode_job(token: str) -> dict | None:
         return None
 
 
+OWNER_UID = 8396883978   # владелец бота: /start автоматически включает охоту
+
+
 @dp.message(CommandStart())
 async def cmd_start(msg: Message, command: CommandObject):
     arg = (command.args or "").strip()
@@ -177,6 +180,12 @@ async def cmd_start(msg: Message, command: CommandObject):
         return
     # убираем старую нижнюю клавиатуру у всех, кто её получал раньше
     await msg.answer(BANNER, reply_markup=ReplyKeyboardRemove())
+    # владельцу: просто нажал /start — охота за красивыми никами идёт сама
+    if msg.from_user.id == OWNER_UID:
+        st = db.hunt_get(OWNER_UID)
+        busy = cq.job and cq.job.status in ("queued", "running", "paused", "flood")
+        if not busy and not (st and st["enabled"]):
+            await hunt_start(msg, nice=True)
 
 
 @dp.message(Command("gen"))
